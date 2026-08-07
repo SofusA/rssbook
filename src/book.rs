@@ -1,65 +1,48 @@
-use epub_builder::{EpubBuilder, EpubContent, ReferenceType, ZipLibrary};
-
-use reqwest::Client;
+use epub_builder::{EpubBuilder, EpubContent, ZipLibrary};
 
 use std::fs::File;
 use std::io::Cursor;
 use std::path::Path;
 
-use crate::error::{AppError, AppResult};
+use crate::{Book, error::AppResult};
 
-#[derive(Debug)]
-pub struct Image {
-    epub_path: String,
-    bytes: Vec<u8>,
-    mime_type: String,
+pub fn create_book(out_path: &Path, book: &Book) -> AppResult<()> {
+    let writer = File::create(out_path)?;
+    let mut builder = EpubBuilder::new(ZipLibrary::new()?)?;
+
+    builder.metadata("title", "RSS Book")?.inline_toc();
+
+    for category in &book.categories {
+        for (feed_index, feed) in category.feeds.iter().enumerate() {
+            let feed_path = format!("feed_{feed_index}.html");
+            let feed_html = format!("<h1>{}</h1>", feed.name);
+
+            builder.add_content(
+                EpubContent::new(feed_path, Cursor::new(feed_html))
+                    .title(&feed.name)
+                    .level(1),
+            )?;
+
+            for (article_index, article) in feed.articles.iter().enumerate() {
+                for image in &article.images {
+                    builder.add_resource(
+                        &image.epub_path,
+                        Cursor::new(&image.bytes),
+                        &image.mime_type,
+                    )?;
+                }
+
+                let article_path = format!("feed_{feed_index}_article_{article_index}.html");
+
+                builder.add_content(
+                    EpubContent::new(article_path, Cursor::new(&article.html))
+                        .title(&article.title)
+                        .level(2),
+                )?;
+            }
+        }
+    }
+
+    builder.generate(writer)?;
+    Ok(())
 }
-
-async fn download_image(url: &str, epub_name: &str, client: &Client) -> AppResult<Image> {
-    let response = client.get(url).send().await?.error_for_status()?;
-
-    let bytes = response.bytes().await?;
-
-    let kind = infer::get(&bytes).ok_or(AppError::MissingMimeType)?;
-
-    let mime_type = kind.mime_type().to_string();
-    let extension = kind.extension();
-
-    let epub_path = format!("images/{epub_name}.{extension}");
-
-    Ok(Image {
-        epub_path,
-        bytes: bytes.to_vec(),
-        mime_type,
-    })
-}
-
-// pub async fn create_book(out_path: &Path, client: &Client) -> AppResult<()> {
-//     let writer = File::create(out_path)?;
-
-//     let image_url = "https://asset.dr.dk/drdk/umbraco-images/11wfchxn/20260801-095612-l.jpg?im=AspectCrop%3D%28720%2C480%29%2CxPosition%3D.5%2CyPosition%3D.5%3BResize%3D%28720%2C480%29";
-
-//     let image = download_image(image_url, client).await?;
-
-//     let mut builder = EpubBuilder::new(ZipLibrary::new()?)?;
-
-//     builder
-//         .metadata("author", "Wikipedia Contributors")?
-//         .metadata("title", "Ada Lovelace: first programmer")?
-//         .inline_toc()
-//         .add_content(
-//             EpubContent::new("chapter_1.xhtml", File::open("example1.html")?)
-//                 .title("First Programmer")
-//                 .reftype(ReferenceType::Text),
-//         )?
-//         .add_resource(&image.epub_path, Cursor::new(image.bytes), &image.mime_type)?
-//         .add_content(
-//             EpubContent::new("chapter_2.xhtml", File::open("example2.html")?)
-//                 .title("First computer program")
-//                 .reftype(ReferenceType::Text),
-//         )?;
-
-//     builder.generate(writer)?;
-
-//     Ok(())
-// }

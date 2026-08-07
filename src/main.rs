@@ -6,6 +6,7 @@ use rss::Channel;
 use scraper::{Html, Selector};
 use url::Url;
 
+use crate::book::create_book;
 use crate::error::{AppError, AppResult};
 use crate::upload::upload;
 
@@ -45,6 +46,7 @@ struct RssFeed {
 struct Article {
     images: Vec<Image>,
     html: String,
+    title: String,
 }
 
 struct BookBuilder {
@@ -83,9 +85,12 @@ impl BookBuilder {
                                 .iter()
                                 .enumerate()
                                 .filter_map(|(article_index, item)| {
-                                    item.link.as_deref().map(|link| (article_index, link))
+                                    item.link.as_deref().map(|link| {
+                                        let title = item.title.clone().unwrap_or_else(|| {format!("Article {}", article_index.saturating_add(1))});
+                                        (article_index, title, link)
+                                    })
                                 })
-                                .map(|(article_index, link)| async move {
+                                .map(|(article_index, title, link)| async move {
                                     let html = client
                                         .get(link)
                                         .send()
@@ -96,7 +101,7 @@ impl BookBuilder {
 
                                     let image_name_prefix = format!("category-{category_index}-feed-{feed_index}-article-{article_index}");
 
-                                    process_article_html(link, &html, &image_name_prefix, client)
+                                    process_article_html(link, &html, &image_name_prefix, title, client )
                                         .await
                                 }),
                         )
@@ -140,6 +145,7 @@ async fn process_article_html(
     page_url: &str,
     source_html: &str,
     image_name_prefix: &str,
+    title: String,
     client: &Client,
 ) -> AppResult<Article> {
     let base_url = Url::parse(page_url)?;
@@ -196,6 +202,7 @@ async fn process_article_html(
     Ok(Article {
         images,
         html: rewritten_html,
+        title,
     })
 }
 
@@ -265,24 +272,26 @@ async fn run(device_url: Option<String>) -> AppResult<()> {
     let book = BookBuilder::new()
         .category(
             "News",
-            vec![(
-                "Udland".to_string(),
-                Url::parse("https://www.dr.dk/nyheder/service/feeds/udland")?,
-            )],
+            vec![
+                (
+                    "Udland".to_string(),
+                    Url::parse("https://www.dr.dk/nyheder/service/feeds/udland")?,
+                ),
+                (
+                    "Inland".to_string(),
+                    Url::parse("https://www.dr.dk/nyheder/service/feeds/inland")?,
+                ),
+            ],
         )
         .build(&client)
         .await?;
 
-    println!("{book:?}");
-
-    // parse_book(book, &client).await?;
-
     let out_path = env::current_dir()?.join("dev.epub");
 
-    // println!("write file to: {}", out_path.display());
+    println!("write file to: {}", out_path.display());
 
-    // create_book(&out_path, &client).await?;
-    // println!("Sample book generation is done");
+    create_book(&out_path, &book)?;
+    println!("Sample book generation is done");
 
     if let Some(device_url) = device_url {
         println!("Uploading");
