@@ -14,6 +14,9 @@ pub enum AppError {
     Url(#[from] url::ParseError),
 
     #[error(transparent)]
+    RssParsing(#[from] rss::Error),
+
+    #[error(transparent)]
     Http(#[from] reqwest::Error),
 
     #[error("Could not determine image type")]
