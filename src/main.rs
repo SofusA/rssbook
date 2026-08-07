@@ -271,6 +271,39 @@ async fn run(device_url: Option<String>) -> AppResult<()> {
 
     let book = BookBuilder::new()
         .category(
+            "Blogs",
+            vec![
+                (
+                    "Rust".to_string(),
+                    Url::parse("https://blog.rust-lang.org/feed.xml")?,
+                ),
+                (
+                    "Rust inside".to_string(),
+                    Url::parse("https://blog.rust-lang.org/inside-rust/feed.xml")?,
+                ),
+                (
+                    "Hashimoto".to_string(),
+                    Url::parse("https://mitchellh.com/feed.xml")?,
+                ),
+                (
+                    "Codeberg".to_string(),
+                    Url::parse("https://blog.codeberg.org/feeds/all.atom.xml")?,
+                ),
+                (
+                    "Andrew Kelly".to_string(),
+                    Url::parse("https://andrewkelley.me/rss.xml")?,
+                ),
+                (
+                    "Orhun".to_string(),
+                    Url::parse("https://blog.orhun.dev/rss.xml")?,
+                ),
+                (
+                    "DHH".to_string(),
+                    Url::parse("https://world.hey.com/dhh/feed.atom")?,
+                ),
+            ],
+        )
+        .category(
             "News",
             vec![
                 (
