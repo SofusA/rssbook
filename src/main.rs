@@ -1,16 +1,15 @@
 use clap::Parser;
+use feed_rs::model::Feed;
+use feed_rs::parser;
 use futures::future::try_join_all;
 use lol_html::{RewriteStrSettings, element, rewrite_str};
 use reqwest::Client;
-use rss::Channel;
 use scraper::{Html, Selector};
 use url::Url;
 
 use crate::book::create_epubs;
 use crate::error::{AppError, AppResult};
 use crate::upload::upload;
-
-use std::env;
 
 mod book;
 mod error;
@@ -81,18 +80,37 @@ impl BookBuilder {
 
                         let articles = try_join_all(
                             channel
-                                .items
+                                .entries
                                 .iter()
                                 .enumerate()
-                                .filter_map(|(article_index, item)| {
-                                    item.link.as_deref().map(|link| {
-                                        let title = item.title.clone().unwrap_or_else(|| {format!("Article {}", article_index.saturating_add(1))});
-                                        (article_index, title, link)
-                                    })
+                                .filter_map(|(article_index, entry)| {
+                                    let link = entry
+                                        .links
+                                        .iter()
+                                        .find(|link| {
+                                            link.rel
+                                                .as_deref()
+                                                .is_none_or(|rel| rel == "alternate")
+                                        })
+                                        .or_else(|| entry.links.first())?
+                                        .href
+                                        .clone();
+
+                                    let title = entry
+                                        .title
+                                        .as_ref()
+                                        .map(|title| title.content.clone())
+                                        .filter(|title| !title.trim().is_empty())
+                                        .unwrap_or_else(|| {
+                                            format!("Article {}", article_index.saturating_add(1))
+                                        });
+
+                                    Some((article_index, title, link))
                                 })
+                                .take(10)
                                 .map(|(article_index, title, link)| async move {
                                     let html = client
-                                        .get(link)
+                                        .get(link.clone())
                                         .send()
                                         .await?
                                         .error_for_status()?
@@ -101,7 +119,7 @@ impl BookBuilder {
 
                                     let image_name_prefix = format!("category-{category_index}-feed-{feed_index}-article-{article_index}");
 
-                                    process_article_html(link, &html, &image_name_prefix, title, client )
+                                    process_article_html(&link, &html, &image_name_prefix, title, client )
                                         .await
                                 }),
                         )
@@ -127,7 +145,7 @@ impl BookBuilder {
     }
 }
 
-async fn parse_feed(url: Url, client: &Client) -> AppResult<Channel> {
+async fn parse_feed(url: Url, client: &Client) -> AppResult<Feed> {
     let content = client
         .get(url)
         .send()
@@ -136,9 +154,7 @@ async fn parse_feed(url: Url, client: &Client) -> AppResult<Channel> {
         .bytes()
         .await?;
 
-    let channel = Channel::read_from(&content[..])?;
-
-    Ok(channel)
+    Ok(parser::parse(&content[..])?)
 }
 
 async fn process_article_html(
@@ -179,13 +195,22 @@ async fn process_article_html(
             let epub_name = format!("{image_name_prefix}-image-{image_index}");
 
             async move {
-                let image = download_image(absolute_url.as_str(), &epub_name, client).await?;
-
-                Ok::<(String, Image), AppError>((original_src, image))
+                match download_image(absolute_url.as_str(), &epub_name, client).await {
+                    Ok(image) => {
+                        Ok::<Option<(String, Image)>, AppError>(Some((original_src, image)))
+                    }
+                    Err(error) => {
+                        eprintln!("Skipping image {absolute_url}: {error}");
+                        Ok(None)
+                    }
+                }
             }
         },
     ))
-    .await?;
+    .await?
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>();
 
     let image_replacements = downloaded_images
         .iter()
@@ -318,10 +343,6 @@ async fn run(device_url: Option<String>) -> AppResult<()> {
         )
         .build(&client)
         .await?;
-
-    let out_path = env::current_dir()?.join("dev.epub");
-
-    println!("write file to: {}", out_path.display());
 
     let epubs = create_epubs(&book)?;
     println!("Sample book generation is done");

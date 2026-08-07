@@ -25,6 +25,9 @@ pub enum AppError {
     #[error(transparent)]
     RewritingError(#[from] lol_html::errors::RewritingError),
 
+    #[error(transparent)]
+    FeedError(#[from] feed_rs::parser::ParseFeedError),
+
     #[error("Could not determine image type")]
     MissingMimeType,
 
