@@ -11,6 +11,9 @@ infer = "0.16"
 thiserror = "2"
 url = "2"
 rss = "2.1.0"
+clap = { version = "4.6.6", features = ["derive"] }
+futures = "0.3.33"
+scraper = "0.27.0"
 
 [lints.clippy]
 pedantic = { level = "warn", priority = -1 }
