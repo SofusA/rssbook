@@ -1,0 +1,37 @@
+[package]
+name = "rssbook"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+epub-builder = "0.8"
+tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.12", features = ["rustls-tls", "multipart"] }
+infer = "0.16"
+thiserror = "2"
+url = "2"
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+indexing_slicing = "warn"
+arithmetic_side_effects = "warn"
+unreachable = "warn"
+unimplemented = "warn"
+unchecked_time_subtraction = "warn"
+todo = "warn"
+string_slice = "warn"
+panic_in_result_fn = "warn"
+panic = "warn"
+exit = "warn"
+as_conversions = "warn"
+dbg_macro = "warn"
+
+missing_errors_doc = "allow"
+missing-panics-doc = "allow"
+too-many-lines = "allow"
+too_many_arguments = "allow"
+type_complexity = "allow"
+result_large_err = "allow"
+large_futures = "allow"
+struct_excessive_bools = "allow"
+
