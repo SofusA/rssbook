@@ -19,6 +19,12 @@ pub enum AppError {
     #[error(transparent)]
     Http(#[from] reqwest::Error),
 
+    #[error(transparent)]
+    Scraper(#[from] scraper::error::SelectorErrorKind<'static>),
+
+    #[error(transparent)]
+    RewritingError(#[from] lol_html::errors::RewritingError),
+
     #[error("Could not determine image type")]
     MissingMimeType,
 

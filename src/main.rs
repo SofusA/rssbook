@@ -1,27 +1,27 @@
 use clap::Parser;
 use futures::future::try_join_all;
+use lol_html::{RewriteStrSettings, element, rewrite_str};
 use reqwest::Client;
 use rss::Channel;
+use scraper::{Html, Selector};
 use url::Url;
 
-use crate::book::create_book;
 use crate::error::{AppError, AppResult};
 use crate::upload::upload;
 
 use std::env;
-use std::ops::Deref;
 
 mod book;
 mod error;
 mod upload;
 
-struct BookBuilder {
-    categories: Vec<CategoryInner>,
-}
+use std::collections::{HashMap, HashSet};
 
-struct CategoryInner {
-    name: String,
-    feeds: Vec<(String, Url)>,
+#[derive(Debug)]
+struct Image {
+    epub_path: String,
+    bytes: Vec<u8>,
+    mime_type: String,
 }
 
 #[derive(Debug)]
@@ -43,8 +43,17 @@ struct RssFeed {
 
 #[derive(Debug)]
 struct Article {
-    images: Vec<Url>,
+    images: Vec<Image>,
     html: String,
+}
+
+struct BookBuilder {
+    categories: Vec<CategoryInner>,
+}
+
+struct CategoryInner {
+    name: String,
+    feeds: Vec<(String, Url)>,
 }
 
 impl BookBuilder {
@@ -61,74 +70,52 @@ impl BookBuilder {
         self
     }
 
-    async fn build_old(&self, client: &Client) -> AppResult<Book> {
-        let mut categories = vec![];
-        for category in &self.categories {
-            let mut feeds = vec![];
-            for feed in &category.feeds {
-                let _channel = parse_feed(feed.1.clone(), client).await?;
-                let article = Article {
-                    images: vec![],
-                    html: "<p>test</p>".to_string(),
-                };
-
-                let articles = vec![article];
-
-                feeds.push(RssFeed {
-                    name: feed.0.clone(),
-                    articles,
-                });
-            }
-
-            categories.push(Category {
-                name: category.name.clone(),
-                feeds,
-            });
-        }
-
-        let book = Book { categories };
-        Ok(book)
-    }
-
     async fn build(&self, client: &Client) -> AppResult<Book> {
-        let categories = try_join_all(self.categories.iter().map(|category| async move {
-            let feeds = try_join_all(category.feeds.iter().map(|feed| async move {
-                let channel = parse_feed(feed.1.clone(), client).await?;
+        let categories = try_join_all(self.categories.iter().enumerate().map(
+            |(category_index, category)| async move {
+                let feeds = try_join_all(category.feeds.iter().enumerate().map(
+                    |(feed_index, feed)| async move {
+                        let channel = parse_feed(feed.1.clone(), client).await?;
 
-                let articles = try_join_all(
-                    channel
-                        .items
-                        .iter()
-                        .filter_map(|item| item.link.as_deref())
-                        .map(|link| async move {
-                            let html = client
-                                .get(link)
-                                .send()
-                                .await?
-                                .error_for_status()?
-                                .text()
-                                .await?;
+                        let articles = try_join_all(
+                            channel
+                                .items
+                                .iter()
+                                .enumerate()
+                                .filter_map(|(article_index, item)| {
+                                    item.link.as_deref().map(|link| (article_index, link))
+                                })
+                                .map(|(article_index, link)| async move {
+                                    let html = client
+                                        .get(link)
+                                        .send()
+                                        .await?
+                                        .error_for_status()?
+                                        .text()
+                                        .await?;
 
-                            Ok::<Article, AppError>(Article {
-                                images: vec![],
-                                html,
-                            })
-                        }),
-                )
+                                    let image_name_prefix = format!("category-{category_index}-feed-{feed_index}-article-{article_index}");
+
+                                    process_article_html(link, &html, &image_name_prefix, client)
+                                        .await
+                                }),
+                        )
+                        .await?;
+
+                        Ok::<RssFeed, AppError>(RssFeed {
+                            name: feed.0.clone(),
+                            articles,
+                        })
+                    },
+                ))
                 .await?;
 
-                Ok::<RssFeed, AppError>(RssFeed {
-                    name: feed.0.clone(),
-                    articles,
+                Ok::<Category, AppError>(Category {
+                    name: category.name.clone(),
+                    feeds,
                 })
-            }))
-            .await?;
-
-            Ok::<Category, AppError>(Category {
-                name: category.name.clone(),
-                feeds,
-            })
-        }))
+            },
+        ))
         .await?;
 
         Ok(Book { categories })
@@ -136,9 +123,140 @@ impl BookBuilder {
 }
 
 async fn parse_feed(url: Url, client: &Client) -> AppResult<Channel> {
-    let content = client.get(url).send().await?.bytes().await?;
+    let content = client
+        .get(url)
+        .send()
+        .await?
+        .error_for_status()?
+        .bytes()
+        .await?;
+
     let channel = Channel::read_from(&content[..])?;
+
     Ok(channel)
+}
+
+async fn process_article_html(
+    page_url: &str,
+    source_html: &str,
+    image_name_prefix: &str,
+    client: &Client,
+) -> AppResult<Article> {
+    let base_url = Url::parse(page_url)?;
+    let main_selector = Selector::parse("main").expect("valid main selector");
+    let image_selector = Selector::parse("img[src]").expect("valid image selector");
+
+    let document = Html::parse_document(source_html);
+
+    let selected_html = document
+        .select(&main_selector)
+        .next()
+        .map_or_else(|| source_html.to_string(), |main| main.inner_html());
+
+    let selected_document = Html::parse_fragment(&selected_html);
+
+    let mut seen_sources = HashSet::new();
+
+    let image_sources = selected_document
+        .select(&image_selector)
+        .filter_map(|element| element.value().attr("src"))
+        .map(str::trim)
+        .filter(|src| !src.is_empty())
+        .filter(|src| seen_sources.insert((*src).to_string()))
+        .filter_map(|src| {
+            resolve_image_url(&base_url, src).map(|absolute_url| (src.to_string(), absolute_url))
+        })
+        .collect::<Vec<_>>();
+
+    let downloaded_images = try_join_all(image_sources.into_iter().enumerate().map(
+        |(image_index, (original_src, absolute_url))| {
+            let epub_name = format!("{image_name_prefix}-image-{image_index}");
+
+            async move {
+                let image = download_image(absolute_url.as_str(), &epub_name, client).await?;
+
+                Ok::<(String, Image), AppError>((original_src, image))
+            }
+        },
+    ))
+    .await?;
+
+    let image_replacements = downloaded_images
+        .iter()
+        .map(|(original_src, image)| (original_src.clone(), image.epub_path.clone()))
+        .collect::<HashMap<_, _>>();
+
+    let rewritten_html = rewrite_article_html(&selected_html, image_replacements)?;
+
+    let images = downloaded_images
+        .into_iter()
+        .map(|(_, image)| image)
+        .collect();
+
+    Ok(Article {
+        images,
+        html: rewritten_html,
+    })
+}
+
+fn resolve_image_url(base_url: &Url, src: &str) -> Option<Url> {
+    let src = src.trim();
+
+    if src.is_empty() || src.starts_with("data:") || src.starts_with("blob:") {
+        return None;
+    }
+
+    let url = base_url.join(src).ok()?;
+
+    match url.scheme() {
+        "http" | "https" => Some(url),
+        _ => None,
+    }
+}
+
+fn rewrite_article_html(
+    html: &str,
+    image_replacements: HashMap<String, String>,
+) -> AppResult<String> {
+    let settings = RewriteStrSettings::new()
+        .append_element_content_handler(element!("*", |element| {
+            element.remove_attribute("class");
+            Ok(())
+        }))
+        .append_element_content_handler(element!("img", move |element| {
+            element.remove_attribute("srcset");
+
+            let Some(src) = element.get_attribute("src") else {
+                return Ok(());
+            };
+
+            if let Some(epub_path) = image_replacements.get(src.trim()) {
+                element.set_attribute("src", epub_path)?;
+            }
+
+            Ok(())
+        }));
+
+    Ok(rewrite_str(html, settings)?)
+}
+
+async fn download_image(url: &str, epub_name: &str, client: &Client) -> AppResult<Image> {
+    let response = client.get(url).send().await?.error_for_status()?;
+
+    let bytes = response.bytes().await?;
+
+    let kind = infer::get(&bytes).ok_or(AppError::MissingMimeType)?;
+
+    let mime_type = kind.mime_type().to_string();
+    let extension = kind.extension();
+
+    let epub_path = format!("images/{epub_name}.{extension}");
+
+    Ok(Image {
+        epub_path,
+        bytes: bytes.to_vec(),
+        mime_type,
+    })
 }
 
 async fn run(device_url: Option<String>) -> AppResult<()> {
@@ -155,7 +273,7 @@ async fn run(device_url: Option<String>) -> AppResult<()> {
         .build(&client)
         .await?;
 
-    println!("{:?}", book);
+    println!("{book:?}");
 
     // parse_book(book, &client).await?;
 
