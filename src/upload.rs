@@ -6,7 +6,7 @@ use url::Url;
 
 use crate::error::{AppError, AppResult};
 
-pub async fn upload(path: &Path, client: &Client, device_url: Url) -> AppResult<()> {
+pub async fn upload(path: &Path, client: &Client, device_url: &Url) -> AppResult<()> {
     let filename = path
         .file_name()
         .and_then(|s| s.to_str())

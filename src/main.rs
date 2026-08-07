@@ -6,7 +6,7 @@ use rss::Channel;
 use scraper::{Html, Selector};
 use url::Url;
 
-use crate::book::create_book;
+use crate::book::create_epubs;
 use crate::error::{AppError, AppResult};
 use crate::upload::upload;
 
@@ -278,8 +278,8 @@ async fn run(device_url: Option<String>) -> AppResult<()> {
                     Url::parse("https://www.dr.dk/nyheder/service/feeds/udland")?,
                 ),
                 (
-                    "Inland".to_string(),
-                    Url::parse("https://www.dr.dk/nyheder/service/feeds/inland")?,
+                    "Indland".to_string(),
+                    Url::parse("https://www.dr.dk/nyheder/service/feeds/indland")?,
                 ),
             ],
         )
@@ -290,14 +290,16 @@ async fn run(device_url: Option<String>) -> AppResult<()> {
 
     println!("write file to: {}", out_path.display());
 
-    create_book(&out_path, &book)?;
+    let epubs = create_epubs(&book)?;
     println!("Sample book generation is done");
 
     if let Some(device_url) = device_url {
-        println!("Uploading");
         let device_url = Url::parse(&device_url)?;
-        upload(&out_path, &client, device_url).await?;
-        println!("Upload done");
+        for epub in epubs {
+            print!("Uploading {}... ", epub.to_string_lossy());
+            upload(&epub, &client, &device_url).await?;
+            println!("done");
+        }
     }
 
     Ok(())
