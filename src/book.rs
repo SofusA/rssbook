@@ -14,7 +14,7 @@ pub fn create_epubs(book: &Book) -> AppResult<Vec<PathBuf>> {
 
         let mut builder = EpubBuilder::new(ZipLibrary::new()?)?;
 
-        builder.metadata("title", &category.name)?.inline_toc();
+        builder.metadata("title", &category.name)?;
 
         for (feed_index, feed) in category.feeds.iter().enumerate() {
             builder.add_content(

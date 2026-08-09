@@ -107,7 +107,7 @@ impl BookBuilder {
 
                                     Some((article_index, title, link))
                                 })
-                                .take(10)
+                                .take(3)
                                 .map(|(article_index, title, link)| async move {
                                     let html = client
                                         .get(link.clone())
@@ -217,7 +217,8 @@ async fn process_article_html(
         .map(|(original_src, image)| (original_src.clone(), image.epub_path.clone()))
         .collect::<HashMap<_, _>>();
 
-    let rewritten_html = rewrite_article_html(&selected_html, image_replacements)?;
+    let rewritten_html =
+        rewrite_article_html(&selected_html, image_replacements)?.replace("&nbsp;", "&#160;");
 
     let images = downloaded_images
         .into_iter()
@@ -251,12 +252,65 @@ fn rewrite_article_html(
     image_replacements: HashMap<String, String>,
 ) -> AppResult<String> {
     let settings = RewriteStrSettings::new()
+        // Remove elements that should not be included in the EPUB.
+        //
+        // `remove()` removes both the element and all of its content.
+        .append_element_content_handler(element!(
+            "script, style, iframe, frame, frameset, object, embed, \
+             applet, canvas, noscript, template, form, input, button, \
+             select, option, textarea, video, audio, source, track, \
+             link, meta, base",
+            |element| {
+                element.remove();
+                Ok(())
+            }
+        ))
+        // Remove styling, metadata, and JavaScript event attributes
+        // from every remaining element.
         .append_element_content_handler(element!("*", |element| {
-            element.remove_attribute("class");
+            let attributes_to_remove = element
+                .attributes()
+                .iter()
+                .map(|attribute| attribute.name().clone())
+                .filter(|name| {
+                    let name = name.to_ascii_lowercase();
+
+                    name == "style"
+                        || name == "class"
+                        || name == "id"
+                        || name == "width"
+                        || name == "height"
+                        || name == "align"
+                        || name == "bgcolor"
+                        || name == "background"
+                        || name == "border"
+                        || name == "cellpadding"
+                        || name == "cellspacing"
+                        || name == "color"
+                        || name == "face"
+                        || name == "size"
+                        || name.starts_with("data-")
+                        || name.starts_with("aria-")
+                        || name.starts_with("on")
+                })
+                .collect::<Vec<_>>();
+
+            // Attribute names must be collected first because
+            // attributes() immutably borrows the element.
+            for attribute_name in attributes_to_remove {
+                element.remove_attribute(&attribute_name);
+            }
+
             Ok(())
         }))
+        // Rewrite downloaded image paths and remove web-oriented
+        // image attributes.
         .append_element_content_handler(element!("img", move |element| {
             element.remove_attribute("srcset");
+            element.remove_attribute("sizes");
+            element.remove_attribute("loading");
+            element.remove_attribute("decoding");
+            element.remove_attribute("fetchpriority");
 
             let Some(src) = element.get_attribute("src") else {
                 return Ok(());
@@ -264,8 +318,18 @@ fn rewrite_article_html(
 
             if let Some(epub_path) = image_replacements.get(src.trim()) {
                 element.set_attribute("src", epub_path)?;
+            } else {
+                element.remove_attribute("src");
             }
 
+            Ok(())
+        }))
+        .append_element_content_handler(element!("svg", |element| {
+            element.remove();
+            Ok(())
+        }))
+        .append_element_content_handler(element!("img, picture", |element| {
+            element.remove();
             Ok(())
         }));
 
@@ -344,10 +408,20 @@ async fn run(device_url: Option<String>) -> AppResult<()> {
         .build(&client)
         .await?;
 
+    for cat in &book.categories {
+        for reed in &cat.feeds {
+            for article in &reed.articles {
+                println!("{}", article.title);
+                println!("{}", article.html);
+            }
+        }
+    }
+
     let epubs = create_epubs(&book)?;
-    println!("Sample book generation is done");
+    println!("Book generation is done");
 
     if let Some(device_url) = device_url {
+        println!("Starting upload");
         let device_url = Url::parse(&device_url)?;
         for epub in epubs {
             print!("Uploading {}... ", epub.to_string_lossy());
@@ -355,6 +429,8 @@ async fn run(device_url: Option<String>) -> AppResult<()> {
             println!("done");
         }
     }
+
+    println!("Complete");
 
     Ok(())
 }
