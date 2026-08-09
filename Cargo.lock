@@ -1639,6 +1639,7 @@ dependencies = [
  "futures",
  "infer",
  "lol_html",
+ "regex",
  "reqwest",
  "rss",
  "scraper",

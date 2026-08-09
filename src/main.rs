@@ -3,6 +3,7 @@ use feed_rs::model::Feed;
 use feed_rs::parser;
 use futures::future::try_join_all;
 use lol_html::{RewriteStrSettings, element, rewrite_str};
+use regex::Regex;
 use reqwest::Client;
 use scraper::{Html, Selector};
 use url::Url;
@@ -107,7 +108,7 @@ impl BookBuilder {
 
                                     Some((article_index, title, link))
                                 })
-                                .take(3)
+                                .take(10)
                                 .map(|(article_index, title, link)| async move {
                                     let html = client
                                         .get(link.clone())
@@ -155,6 +156,11 @@ async fn parse_feed(url: Url, client: &Client) -> AppResult<Feed> {
         .await?;
 
     Ok(parser::parse(&content[..])?)
+}
+
+fn self_close_img_tags(html: &str) -> String {
+    let re = Regex::new(r"(?i)<img\b([^<>]*?)(?:\s*/)?\s*>").unwrap();
+    re.replace_all(html, "<img$1 />").into_owned()
 }
 
 async fn process_article_html(
@@ -289,6 +295,9 @@ fn rewrite_article_html(
                         || name == "color"
                         || name == "face"
                         || name == "size"
+                        || name == "itemprop"
+                        || name == "itemscope"
+                        || name == "itemtype"
                         || name.starts_with("data-")
                         || name.starts_with("aria-")
                         || name.starts_with("on")
@@ -328,12 +337,13 @@ fn rewrite_article_html(
             element.remove();
             Ok(())
         }))
-        .append_element_content_handler(element!("img, picture", |element| {
-            element.remove();
+        .append_element_content_handler(element!("picture", |element| {
+            element.remove_and_keep_content();
             Ok(())
         }));
 
-    Ok(rewrite_str(html, settings)?)
+    let rewritten = rewrite_str(html, settings)?;
+    Ok(self_close_img_tags(&rewritten))
 }
 
 async fn download_image(url: &str, epub_name: &str, client: &Client) -> AppResult<Image> {
@@ -362,14 +372,14 @@ async fn run(device_url: Option<String>) -> AppResult<()> {
         .category(
             "Blogs",
             vec![
-                (
-                    "Rust".to_string(),
-                    Url::parse("https://blog.rust-lang.org/feed.xml")?,
-                ),
-                (
-                    "Rust inside".to_string(),
-                    Url::parse("https://blog.rust-lang.org/inside-rust/feed.xml")?,
-                ),
+                // (
+                //     "Rust".to_string(),
+                //     Url::parse("https://blog.rust-lang.org/feed.xml")?,
+                // ),
+                // (
+                //     "Rust inside".to_string(),
+                //     Url::parse("https://blog.rust-lang.org/inside-rust/feed.xml")?,
+                // ),
                 (
                     "Hashimoto".to_string(),
                     Url::parse("https://mitchellh.com/feed.xml")?,
