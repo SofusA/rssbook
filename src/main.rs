@@ -59,7 +59,7 @@ struct BookBuilder {
 
 struct CategoryInner {
     name: String,
-    feeds: Vec<(String, Url)>,
+    feeds: Vec<(String, Url, Option<String>)>,
 }
 
 impl BookBuilder {
@@ -67,7 +67,7 @@ impl BookBuilder {
         Self { categories: vec![] }
     }
 
-    fn category(mut self, name: &str, feeds: Vec<(String, Url)>) -> BookBuilder {
+    fn category(mut self, name: &str, feeds: Vec<(String, Url, Option<String>)>) -> BookBuilder {
         self.categories.push(CategoryInner {
             name: name.to_string(),
             feeds,
@@ -124,7 +124,7 @@ impl BookBuilder {
 
                                     let image_name_prefix = format!("category-{category_index}-feed-{feed_index}-article-{article_index}");
 
-                                    process_article_html(&link, &html, &image_name_prefix, title, client )
+                                    process_article_html(&link, &html, &image_name_prefix, title, feed.2.as_deref(), client )
                                         .await
                                 }),
                         )
@@ -172,6 +172,7 @@ async fn process_article_html(
     source_html: &str,
     image_name_prefix: &str,
     title: String,
+    filter: Option<&str>,
     client: &Client,
 ) -> AppResult<Article> {
     let base_url = Url::parse(page_url)?;
@@ -227,8 +228,8 @@ async fn process_article_html(
         .map(|(original_src, image)| (original_src.clone(), image.epub_path.clone()))
         .collect::<HashMap<_, _>>();
 
-    let rewritten_html =
-        rewrite_article_html(&selected_html, image_replacements)?.replace("&nbsp;", "&#160;");
+    let rewritten_html = rewrite_article_html(&selected_html, image_replacements, filter)?
+        .replace("&nbsp;", "&#160;");
 
     let images = downloaded_images
         .into_iter()
@@ -260,8 +261,9 @@ fn resolve_image_url(base_url: &Url, src: &str) -> Option<Url> {
 fn rewrite_article_html(
     html: &str,
     image_replacements: HashMap<String, String>,
+    filter: Option<&str>,
 ) -> AppResult<String> {
-    let settings = RewriteStrSettings::new()
+    let mut settings = RewriteStrSettings::new()
         // Remove elements that should not be included in the EPUB.
         //
         // `remove()` removes both the element and all of its content.
@@ -269,7 +271,7 @@ fn rewrite_article_html(
             "script, style, iframe, frame, frameset, object, embed, \
              applet, canvas, noscript, template, form, input, button, \
              select, option, textarea, video, audio, source, track, \
-             link, meta, base",
+             link, meta, base, aside",
             |element| {
                 element.remove();
                 Ok(())
@@ -286,8 +288,6 @@ fn rewrite_article_html(
                     let name = name.to_ascii_lowercase();
 
                     name == "style"
-                        || name == "class"
-                        || name == "id"
                         || name == "width"
                         || name == "height"
                         || name == "align"
@@ -308,8 +308,6 @@ fn rewrite_article_html(
                 })
                 .collect::<Vec<_>>();
 
-            // Attribute names must be collected first because
-            // attributes() immutably borrows the element.
             for attribute_name in attributes_to_remove {
                 element.remove_attribute(&attribute_name);
             }
@@ -346,6 +344,32 @@ fn rewrite_article_html(
             Ok(())
         }));
 
+    if let Some(filter) = filter {
+        settings = settings.append_element_content_handler(element!(filter, |element| {
+            element.remove();
+            Ok(())
+        }));
+    }
+
+    settings = settings.append_element_content_handler(element!("*", |element| {
+        let attributes_to_remove = element
+            .attributes()
+            .iter()
+            .map(|attribute| attribute.name().clone())
+            .filter(|name| {
+                let name = name.to_ascii_lowercase();
+
+                name == "id" || name == "class"
+            })
+            .collect::<Vec<_>>();
+
+        for attribute_name in attributes_to_remove {
+            element.remove_attribute(&attribute_name);
+        }
+
+        Ok(())
+    }));
+
     let rewritten = rewrite_str(html, settings)?;
     Ok(self_close_img_tags(&rewritten))
 }
@@ -359,7 +383,9 @@ async fn download_image(url: &str, epub_name: &str, client: &Client) -> AppResul
     let mut image = reader.decode()?;
 
     // Keep dimensions comfortably within CrossPoint's limits.
-    image = image.resize(780, 780, FilterType::Lanczos3);
+    if image.width() > 780 {
+        image = image.resize(780, 780, FilterType::Lanczos3);
+    }
 
     // Remove alpha and unusual colour formats.
     let image = image.to_rgb8();
@@ -383,6 +409,10 @@ async fn download_image(url: &str, epub_name: &str, client: &Client) -> AppResul
 async fn run(device_url: Option<String>) -> AppResult<()> {
     let client = Client::new();
 
+    // remove:
+    // .dre-label-text__text
+    // .dre-share-link
+
     let book = BookBuilder::new()
         .category(
             "Blogs",
@@ -398,22 +428,27 @@ async fn run(device_url: Option<String>) -> AppResult<()> {
                 (
                     "Hashimoto".to_string(),
                     Url::parse("https://mitchellh.com/feed.xml")?,
+                    None,
                 ),
                 (
                     "Codeberg".to_string(),
                     Url::parse("https://blog.codeberg.org/feeds/all.atom.xml")?,
+                    None,
                 ),
                 (
                     "Andrew Kelly".to_string(),
                     Url::parse("https://andrewkelley.me/rss.xml")?,
+                    None,
                 ),
                 (
                     "Orhun".to_string(),
                     Url::parse("https://blog.orhun.dev/rss.xml")?,
+                    None,
                 ),
                 (
                     "DHH".to_string(),
                     Url::parse("https://world.hey.com/dhh/feed.atom")?,
+                    None,
                 ),
             ],
         )
@@ -423,10 +458,12 @@ async fn run(device_url: Option<String>) -> AppResult<()> {
                 (
                     "Udland".to_string(),
                     Url::parse("https://www.dr.dk/nyheder/service/feeds/udland")?,
+                    Some(".dre-label-text__text, .dre-share-link".to_string()),
                 ),
                 (
                     "Indland".to_string(),
                     Url::parse("https://www.dr.dk/nyheder/service/feeds/indland")?,
+                    Some(".dre-label-text__text, .dre-share-link".to_string()),
                 ),
             ],
         )
@@ -437,7 +474,7 @@ async fn run(device_url: Option<String>) -> AppResult<()> {
         for reed in &cat.feeds {
             for article in &reed.articles {
                 println!("{}", article.title);
-                // println!("{}", article.html);
+                println!("{}", article.html);
             }
         }
     }
