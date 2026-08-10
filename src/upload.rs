@@ -23,7 +23,6 @@ pub async fn upload(path: &Path, device_url: &Url) -> AppResult<()> {
     let form = multipart::Form::new().part("file", file_part);
 
     let upload_url = device_url.join("upload")?;
-    eprintln!("URL debug: {:?}", upload_url.as_str());
 
     client
         .post(upload_url)

@@ -8,7 +8,7 @@ use image::imageops::FilterType;
 use lol_html::{RewriteStrSettings, element, rewrite_str};
 use regex::Regex;
 use reqwest::Client;
-use scraper::{ElementRef, Html, HtmlTreeSink, Selector};
+use scraper::{ElementRef, Html, HtmlTreeSink, Node, Selector};
 use url::Url;
 
 use std::collections::{HashMap, HashSet};
@@ -200,6 +200,7 @@ impl BookBuilder {
                             .iter()
                             .enumerate()
                             .map(|(feed_index, feed)| async move {
+                                println!("Processing {}", feed.0);
                                 let channel = parse_feed(feed.1.clone(), client).await?;
 
                                 let articles = try_join_all(
@@ -236,6 +237,8 @@ impl BookBuilder {
                                         })
                                         .take(10)
                                         .map(|(article_index, title, link)| async move {
+                                            println!("Processing {title}");
+
                                             let html = client
                                                 .get(&link)
                                                 .send()
@@ -312,7 +315,7 @@ async fn process_article_html(
      * Reuse the initial parsed DOM for both article extraction and image
      * discovery. This avoids parsing selected_html as a second fragment.
      */
-    let (selected_html, image_sources) =
+    let (mut selected_html, image_sources) =
         if let Some(article) = document.select(&ARTICLE_SELECTOR).next() {
             (
                 article.inner_html(),
@@ -320,7 +323,7 @@ async fn process_article_html(
             )
         } else {
             (
-                source_html.to_string(),
+                format!("<div>{source_html}</div>"),
                 collect_image_sources_from_document(&document, &base_url),
             )
         };
@@ -352,6 +355,7 @@ async fn process_article_html(
         .map(|(original_src, image)| (original_src.clone(), image.epub_path.clone()))
         .collect::<HashMap<_, _>>();
 
+    selected_html = selected_html.replace("↩", "");
     let rewritten_html =
         rewrite_article_html(&selected_html, image_replacements, filter)?.replace("&nbsp;", " ");
 
@@ -542,6 +546,27 @@ fn can_unwrap(element: &ElementRef<'_>) -> bool {
 fn cleanup_dom_single_pass(html: &str) -> String {
     let mut document = Html::parse_fragment(html);
 
+    let comment_ids = document
+        .tree
+        .nodes()
+        .filter(|&node| matches!(node.value(), Node::Comment(_)))
+        .map(|node| node.id())
+        .collect::<Vec<_>>();
+
+    for id in comment_ids {
+        let Some(mut wrapper) = document.tree.get_mut(id) else {
+            continue;
+        };
+
+        while let Some(mut child) = wrapper.first_child() {
+            let child_id = child.id();
+            child.detach();
+            wrapper.insert_id_before(child_id);
+        }
+
+        wrapper.detach();
+    }
+
     let unwrap_ids = document
         .select(&WRAPPER_SELECTOR)
         .filter(can_unwrap)
@@ -641,7 +666,7 @@ async fn run(device_url: Option<String>) -> AppResult<()> {
                 (
                     "Hashimoto".to_string(),
                     Url::parse("https://mitchellh.com/feed.xml")?,
-                    None,
+                    Some("footer, title".to_string()),
                 ),
                 (
                     "Codeberg".to_string(),
@@ -671,25 +696,17 @@ async fn run(device_url: Option<String>) -> AppResult<()> {
                 (
                     "Udland".to_string(),
                     Url::parse("https://www.dr.dk/nyheder/service/feeds/udland")?,
-                    Some(".dre-label-text__text, .dre-share-link".to_string()),
+                    Some(".dre-label-text__text, .dre-share-link, .dre-byline".to_string()),
                 ),
                 (
                     "Indland".to_string(),
                     Url::parse("https://www.dr.dk/nyheder/service/feeds/indland")?,
-                    Some(".dre-label-text__text, .dre-share-link".to_string()),
+                    Some(".dre-label-text__text, .dre-share-link, .dre-byline".to_string()),
                 ),
             ],
         )
         .build(&client, &image_downloader)
         .await?;
-
-    for category in &book.categories {
-        for feed in &category.feeds {
-            for article in &feed.articles {
-                println!("{}", article.title);
-            }
-        }
-    }
 
     let epubs = create_epubs(&book)?;
     println!("Book generation is done");
