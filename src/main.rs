@@ -2,11 +2,15 @@ use clap::Parser;
 use feed_rs::model::Feed;
 use feed_rs::parser;
 use futures::future::try_join_all;
+use image::codecs::jpeg::JpegEncoder;
+use image::imageops::FilterType;
 use lol_html::{RewriteStrSettings, element, rewrite_str};
 use regex::Regex;
 use reqwest::Client;
 use scraper::{Html, Selector};
 use url::Url;
+
+use std::io::Cursor;
 
 use crate::book::create_epubs;
 use crate::error::{AppError, AppResult};
@@ -348,20 +352,31 @@ fn rewrite_article_html(
 
 async fn download_image(url: &str, epub_name: &str, client: &Client) -> AppResult<Image> {
     let response = client.get(url).send().await?.error_for_status()?;
+    let source_bytes = response.bytes().await?;
 
-    let bytes = response.bytes().await?;
+    let reader = image::ImageReader::new(Cursor::new(source_bytes)).with_guessed_format()?;
 
-    let kind = infer::get(&bytes).ok_or(AppError::MissingMimeType)?;
+    let mut image = reader.decode()?;
 
-    let mime_type = kind.mime_type().to_string();
-    let extension = kind.extension();
+    // Keep dimensions comfortably within CrossPoint's limits.
+    image = image.resize(780, 780, FilterType::Lanczos3);
 
-    let epub_path = format!("images/{epub_name}.{extension}");
+    // Remove alpha and unusual colour formats.
+    let image = image.to_rgb8();
+
+    let mut output = Vec::new();
+
+    JpegEncoder::new_with_quality(&mut output, 65).encode(
+        image.as_raw(),
+        image.width(),
+        image.height(),
+        image::ExtendedColorType::Rgb8,
+    )?;
 
     Ok(Image {
-        epub_path,
-        bytes: bytes.to_vec(),
-        mime_type,
+        epub_path: format!("images/{epub_name}.jpg"),
+        bytes: output,
+        mime_type: "image/jpeg".to_string(),
     })
 }
 
@@ -422,7 +437,7 @@ async fn run(device_url: Option<String>) -> AppResult<()> {
         for reed in &cat.feeds {
             for article in &reed.articles {
                 println!("{}", article.title);
-                println!("{}", article.html);
+                // println!("{}", article.html);
             }
         }
     }

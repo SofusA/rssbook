@@ -28,8 +28,8 @@ pub enum AppError {
     #[error(transparent)]
     FeedError(#[from] feed_rs::parser::ParseFeedError),
 
-    #[error("Could not determine image type")]
-    MissingMimeType,
+    #[error(transparent)]
+    Image(#[from] image::ImageError),
 
     #[error("Error serializing epub file path")]
     FileNameEncodingError,
