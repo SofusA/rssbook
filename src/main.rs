@@ -1,4 +1,7 @@
+use chrono::Utc;
 use clap::Parser;
+use color_print::cprintln;
+use ego_tree::NodeRef;
 use feed_rs::model::Feed;
 use feed_rs::parser;
 use futures::future::try_join_all;
@@ -6,7 +9,6 @@ use html5ever::tree_builder::TreeSink;
 use image::codecs::jpeg::JpegEncoder;
 use image::imageops::FilterType;
 use lol_html::{RewriteStrSettings, element, rewrite_str};
-use regex::Regex;
 use reqwest::Client;
 use scraper::{ElementRef, Html, HtmlTreeSink, Node, Selector};
 use url::Url;
@@ -49,8 +51,10 @@ static EMPTY_CANDIDATE_SELECTOR: LazyLock<Selector> = LazyLock::new(|| {
 static MEANINGFUL_ELEMENT_SELECTOR: LazyLock<Selector> =
     LazyLock::new(|| Selector::parse("img[src], br, hr").expect("valid selector"));
 
-static IMG_TAG_REGEX: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?i)<img\b([^<>]*?)(?:\s*/)?\s*>").expect("valid img regex"));
+const VOID_ELEMENTS: &[&str] = &[
+    "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source",
+    "track", "wbr",
+];
 
 #[derive(Debug, Clone)]
 struct Image {
@@ -172,6 +176,7 @@ struct BookBuilder {
 struct CategoryInner {
     name: String,
     feeds: Vec<(String, Url, Option<String>)>,
+    oldest_article: Option<u64>,
 }
 
 impl BookBuilder {
@@ -179,10 +184,16 @@ impl BookBuilder {
         Self { categories: vec![] }
     }
 
-    fn category(mut self, name: &str, feeds: Vec<(String, Url, Option<String>)>) -> BookBuilder {
+    fn category(
+        mut self,
+        name: &str,
+        feeds: Vec<(String, Url, Option<String>)>,
+        oldest_article: Option<u64>,
+    ) -> BookBuilder {
         self.categories.push(CategoryInner {
             name: name.to_string(),
             feeds,
+            oldest_article,
         });
 
         self
@@ -200,13 +211,28 @@ impl BookBuilder {
                             .iter()
                             .enumerate()
                             .map(|(feed_index, feed)| async move {
-                                println!("Processing {}", feed.0);
                                 let channel = parse_feed(feed.1.clone(), client).await?;
 
                                 let articles = try_join_all(
                                     channel
                                         .entries
                                         .iter()
+                                        .filter(|entry| {
+                                            if let Some(oldest_article) = category.oldest_article {
+                                                let date = entry.published.or(entry.updated);
+                                                let Some(date) = date else {
+                                                    return false;
+                                                };
+
+                                                let Some(time_ago) = Utc::now().checked_sub_days(chrono::Days::new(oldest_article)) else {
+                                                    return false;
+                                                };
+
+                                                return date > time_ago;
+                                            }
+
+                                            true
+                                        })
                                         .enumerate()
                                         .filter_map(|(article_index, entry)| {
                                             let link = entry
@@ -235,9 +261,8 @@ impl BookBuilder {
 
                                             Some((article_index, title, link))
                                         })
-                                        .take(10)
                                         .map(|(article_index, title, link)| async move {
-                                            println!("Processing {title}");
+                                            cprintln!("Processing  <blue>{title}</>");
 
                                             let html = client
                                                 .get(&link)
@@ -296,10 +321,6 @@ async fn parse_feed(url: Url, client: &Client) -> AppResult<Feed> {
     Ok(parser::parse(&content[..])?)
 }
 
-fn self_close_img_tags(html: &str) -> String {
-    IMG_TAG_REGEX.replace_all(html, "<img$1 />").into_owned()
-}
-
 async fn process_article_html(
     page_url: &str,
     source_html: &str,
@@ -318,12 +339,12 @@ async fn process_article_html(
     let (mut selected_html, image_sources) =
         if let Some(article) = document.select(&ARTICLE_SELECTOR).next() {
             (
-                article.inner_html(),
+                format!("<div>{}</div>", article.inner_html()),
                 collect_image_sources_from_element(&article, &base_url),
             )
         } else {
             (
-                format!("<div>{source_html}</div>"),
+                source_html.to_string(),
                 collect_image_sources_from_document(&document, &base_url),
             )
         };
@@ -470,6 +491,7 @@ fn rewrite_article_html(
                         || name == "tabindex"
                         || name == "id"
                         || name == "class"
+                        || name == "alt"
                         || name.starts_with("data-")
                         || name.starts_with("aria-")
                         || name.starts_with("on")
@@ -505,8 +527,20 @@ fn rewrite_article_html(
             element.remove();
             Ok(())
         }))
-        .append_element_content_handler(element!("picture", |element| {
+        .append_element_content_handler(element!("span", |element| {
             element.remove_and_keep_content();
+            Ok(())
+        }))
+        .append_element_content_handler(element!("figure", |element| {
+            element.remove_and_keep_content();
+            Ok(())
+        }))
+        .append_element_content_handler(element!("picture", |element| {
+            element.set_tag_name("p")?;
+            Ok(())
+        }))
+        .append_element_content_handler(element!("figcaption", |element| {
+            element.set_tag_name("p")?;
             Ok(())
         }));
 
@@ -519,13 +553,76 @@ fn rewrite_article_html(
 
     let rewritten = rewrite_str(html, settings)?;
 
-    /*
-     * Perform one cleanup parse/pass rather than repeatedly reparsing or
-     * repeatedly traversing until convergence.
-     */
-    let cleaned = cleanup_dom_single_pass(&rewritten);
+    let cleaned = cleanup_dom(&rewritten);
 
-    Ok(self_close_img_tags(&cleaned))
+    Ok(serialize_as_xhtml(&cleaned))
+}
+
+fn escape_text(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
+fn escape_attribute(value: &str) -> String {
+    escape_text(value)
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+}
+
+fn serialize_node(node: NodeRef<'_, Node>, output: &mut String) {
+    match node.value() {
+        Node::Text(text) => {
+            output.push_str(&escape_text(text.text.as_ref()));
+        }
+        Node::Element(element) => {
+            let tag = element.name();
+
+            output.push('<');
+            output.push_str(tag);
+
+            for (name, value) in element.attrs() {
+                output.push(' ');
+                output.push_str(name);
+                output.push_str("=\"");
+                output.push_str(&escape_attribute(value));
+                output.push('"');
+            }
+
+            if VOID_ELEMENTS.contains(&tag) {
+                output.push_str(" />");
+                return;
+            }
+
+            output.push('>');
+
+            for child in node.children() {
+                serialize_node(child, output);
+            }
+
+            output.push_str("</");
+            output.push_str(tag);
+            output.push('>');
+        }
+        _ => {
+            for child in node.children() {
+                serialize_node(child, output);
+            }
+        }
+    }
+}
+
+fn serialize_as_xhtml(html: &str) -> String {
+    let document = Html::parse_fragment(html);
+    let root = document.root_element();
+    let mut output = String::new();
+
+    for child in root.children() {
+        serialize_node(child, &mut output);
+    }
+
+    output
 }
 
 fn can_unwrap(element: &ElementRef<'_>) -> bool {
@@ -541,6 +638,20 @@ fn can_unwrap(element: &ElementRef<'_>) -> bool {
                 .as_text()
                 .is_some_and(|text| !text.trim().is_empty())
         })
+}
+
+fn cleanup_dom(html: &str) -> String {
+    let mut current = html.to_string();
+
+    loop {
+        let next = cleanup_dom_single_pass(&current);
+
+        if next == current {
+            return next;
+        }
+
+        current = next;
+    }
 }
 
 fn cleanup_dom_single_pass(html: &str) -> String {
@@ -689,6 +800,7 @@ async fn run(device_url: Option<String>) -> AppResult<()> {
                     None,
                 ),
             ],
+            Some(30),
         )
         .category(
             "News",
@@ -696,19 +808,21 @@ async fn run(device_url: Option<String>) -> AppResult<()> {
                 (
                     "Udland".to_string(),
                     Url::parse("https://www.dr.dk/nyheder/service/feeds/udland")?,
-                    Some(".dre-label-text__text, .dre-share-link, .dre-byline".to_string()),
+                    Some(".dre-label-text__text, .dre-share-link, .dre-byline, title, [class^=\"BrandLabel\"], [class*=\"truncated-text\"], [class*=\"title-container\"], [class*=\"progress-bar-container\"], [class*=\"read-more\"]".to_string()),
                 ),
                 (
                     "Indland".to_string(),
                     Url::parse("https://www.dr.dk/nyheder/service/feeds/indland")?,
-                    Some(".dre-label-text__text, .dre-share-link, .dre-byline".to_string()),
+                    Some(".dre-label-text__text, .dre-share-link, .dre-byline, title, [class^=\"BrandLabel\"], [class*=\"truncated-text\"], [class*=\"title-container\"], [class*=\"progress-bar-container\"], [class*=\"read-more\"]".to_string()),
                 ),
             ],
+            Some(3)
         )
         .build(&client, &image_downloader)
         .await?;
 
     let epubs = create_epubs(&book)?;
+
     println!("Book generation is done");
 
     if let Some(device_url) = device_url {
