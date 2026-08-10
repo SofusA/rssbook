@@ -2313,6 +2313,7 @@ dependencies = [
  "epub-builder",
  "feed-rs",
  "futures",
+ "html5ever",
  "image",
  "infer",
  "lol_html",

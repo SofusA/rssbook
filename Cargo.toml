@@ -17,7 +17,8 @@ scraper = "0.27"
 lol_html = "3"
 feed-rs = "2.4"
 regex = "1"
-image = "0.25.10"
+image = "0.25"
+html5ever = "0.39.0"
 
 [lints.clippy]
 pedantic = { level = "warn", priority = -1 }

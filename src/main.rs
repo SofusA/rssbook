@@ -2,12 +2,13 @@ use clap::Parser;
 use feed_rs::model::Feed;
 use feed_rs::parser;
 use futures::future::try_join_all;
+use html5ever::tree_builder::TreeSink;
 use image::codecs::jpeg::JpegEncoder;
 use image::imageops::FilterType;
 use lol_html::{RewriteStrSettings, element, rewrite_str};
 use regex::Regex;
 use reqwest::Client;
-use scraper::{Html, Selector};
+use scraper::{ElementRef, Html, HtmlTreeSink, Selector};
 use url::Url;
 
 use std::io::Cursor;
@@ -176,13 +177,13 @@ async fn process_article_html(
     client: &Client,
 ) -> AppResult<Article> {
     let base_url = Url::parse(page_url)?;
-    let main_selector = Selector::parse("main").expect("valid main selector");
+    let article_selector = Selector::parse("article").expect("valid main selector");
     let image_selector = Selector::parse("img[src]").expect("valid image selector");
 
     let document = Html::parse_document(source_html);
 
     let selected_html = document
-        .select(&main_selector)
+        .select(&article_selector)
         .next()
         .map_or_else(|| source_html.to_string(), |main| main.inner_html());
 
@@ -302,6 +303,8 @@ fn rewrite_article_html(
                         || name == "itemprop"
                         || name == "itemscope"
                         || name == "itemtype"
+                        || name == "role"
+                        || name == "tabindex"
                         || name.starts_with("data-")
                         || name.starts_with("aria-")
                         || name.starts_with("on")
@@ -371,7 +374,108 @@ fn rewrite_article_html(
     }));
 
     let rewritten = rewrite_str(html, settings)?;
-    Ok(self_close_img_tags(&rewritten))
+    let cleaned = cleanup_dom(&rewritten);
+
+    Ok(self_close_img_tags(&cleaned))
+}
+
+fn can_unwrap(element: &ElementRef<'_>) -> bool {
+    matches!(element.value().name(), "div" | "span" | "section")
+        && element.value().attrs().next().is_none()
+        && element
+            .children()
+            .filter(|n| n.value().is_element())
+            .count()
+            == 1
+        && !element.children().any(|n| {
+            n.value()
+                .as_text()
+                .is_some_and(|text| !text.trim().is_empty())
+        })
+}
+
+fn can_upwrap_nodes(document: &mut Html, selector: &Selector) -> bool {
+    let unwrap_ids = document
+        .select(selector)
+        .filter(can_unwrap)
+        .map(|element| element.id())
+        .collect::<Vec<_>>();
+
+    let changed = !unwrap_ids.is_empty();
+
+    for id in unwrap_ids {
+        let Some(mut wrapper) = document.tree.get_mut(id) else {
+            continue;
+        };
+
+        // Move children before the wrapper while preserving their order.
+        while let Some(mut child) = wrapper.first_child() {
+            let child_id = child.id();
+            child.detach();
+            wrapper.insert_id_before(child_id);
+        }
+
+        wrapper.detach();
+    }
+
+    changed
+}
+
+fn cleanup_dom(html: &str) -> String {
+    let mut document = Html::parse_document(html);
+
+    let wrappers = Selector::parse("div, span, section").expect("static selector must be valid");
+
+    let empty_candidates = Selector::parse(
+        "div, span, section, article, main, header, footer, nav, \
+         p, blockquote, pre, ul, ol, li, dl, dt, dd, a, figure, \
+         figcaption, table, caption, colgroup, thead, tbody, tfoot, \
+         tr, th, td, strong, em, b, i, u, s, small, mark, sub, sup, \
+         q, cite, abbr",
+    )
+    .expect("static selector must be valid");
+
+    loop {
+        let can_unwrap_nodes = can_upwrap_nodes(&mut document, &wrappers);
+
+        // Find empty elements after unwrapping so the IDs refer to
+        // the current tree.
+        let empty_ids = document
+            .select(&empty_candidates)
+            .filter(element_is_empty)
+            .map(|element| element.id())
+            .collect::<Vec<_>>();
+
+        let had_empty_nodes = !empty_ids.is_empty();
+
+        if had_empty_nodes {
+            let tree = HtmlTreeSink::new(document);
+
+            for id in empty_ids {
+                tree.remove_from_parent(&id);
+            }
+
+            document = tree.finish();
+        }
+
+        if !can_unwrap_nodes && !had_empty_nodes {
+            break;
+        }
+    }
+
+    document.html()
+}
+
+fn element_is_empty(element: &scraper::ElementRef<'_>) -> bool {
+    // Any non-whitespace text makes it meaningful.
+    if element.text().any(|text| !text.trim().is_empty()) {
+        return false;
+    }
+
+    // These descendants carry content without text.
+    let meaningful = Selector::parse("img[src], br, hr").expect("static selector must be valid");
+
+    element.select(&meaningful).next().is_none()
 }
 
 async fn download_image(url: &str, epub_name: &str, client: &Client) -> AppResult<Image> {
