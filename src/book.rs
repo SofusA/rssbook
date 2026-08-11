@@ -116,18 +116,48 @@ pub struct BookInner {
     categories: Vec<CategoryInner>,
 }
 
+impl BookInner {
+    pub fn categories(&self) -> &[CategoryInner] {
+        &self.categories
+    }
+}
+
 #[derive(serde::Deserialize)]
-struct CategoryInner {
+pub struct CategoryInner {
     name: String,
     feeds: Vec<RssFeedInner>,
     oldest_article: Option<u64>,
 }
 
+impl CategoryInner {
+    pub fn feeds(&self) -> &[RssFeedInner] {
+        &self.feeds
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn oldest_article(&self) -> Option<u64> {
+        self.oldest_article
+    }
+}
+
 #[derive(serde::Deserialize)]
-struct RssFeedInner {
+pub struct RssFeedInner {
     title: String,
     url: Url,
     filter: Option<String>,
+}
+
+impl RssFeedInner {
+    pub fn url(&self) -> &Url {
+        &self.url
+    }
+
+    pub fn title(&self) -> &str {
+        &self.title
+    }
 }
 
 pub async fn build_book(
@@ -216,7 +246,7 @@ async fn build_feed(
     })
 }
 
-fn is_recent_enough(entry: &feed_rs::model::Entry, oldest_article: Option<u64>) -> bool {
+pub fn is_recent_enough(entry: &feed_rs::model::Entry, oldest_article: Option<u64>) -> bool {
     if oldest_article.is_none() {
         return true;
     }
@@ -231,7 +261,7 @@ fn is_recent_enough(entry: &feed_rs::model::Entry, oldest_article: Option<u64>) 
         .is_some_and(|(date, cutoff)| date > cutoff)
 }
 
-fn article_details(
+pub fn article_details(
     (article_index, entry): (usize, &feed_rs::model::Entry),
 ) -> Option<(usize, String, String)> {
     let link = entry
@@ -286,7 +316,7 @@ async fn build_article(
     .await
 }
 
-async fn parse_feed(url: Url, client: &Client) -> AppResult<Feed> {
+pub async fn parse_feed(url: Url, client: &Client) -> AppResult<Feed> {
     let content = client
         .get(url)
         .send()

@@ -7,12 +7,14 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use crate::article_select::run_select;
 use crate::book::{BookInner, build_book};
 use crate::epub::create_epubs;
 use crate::error::AppResult;
 use crate::image_download::ImageDownloader;
 use crate::upload::upload;
 
+mod article_select;
 mod book;
 mod epub;
 mod error;
@@ -20,7 +22,7 @@ mod html;
 mod image_download;
 mod upload;
 
-async fn run(config_path: &Path, device_url: Option<String>) -> AppResult<()> {
+async fn run(config_path: &Path, device_url: Option<String>, select: bool) -> AppResult<()> {
     let config_contents = fs::read_to_string(config_path)?;
     let config: BookInner = toml::from_str(&config_contents)?;
 
@@ -29,6 +31,11 @@ async fn run(config_path: &Path, device_url: Option<String>) -> AppResult<()> {
         .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_mins(1))
         .build()?;
+
+    if select {
+        run_select(&config, &client).await?;
+        return Ok(());
+    }
 
     let image_downloader = ImageDownloader::new(client.clone());
 
@@ -55,8 +62,11 @@ struct Args {
     #[clap(long, default_value = "./rssbook.toml")]
     config: PathBuf,
 
+    #[clap(short, long)]
+    select: bool,
+
     /// URL for `CrossPoint` device
-    #[clap(long)]
+    #[clap(short, long)]
     upload: Option<String>,
 }
 
@@ -64,7 +74,7 @@ struct Args {
 async fn main() {
     let cli = Args::parse();
 
-    if let Err(error) = run(&cli.config, cli.upload).await {
+    if let Err(error) = run(&cli.config, cli.upload, cli.select).await {
         eprintln!("{error}");
     }
 }
