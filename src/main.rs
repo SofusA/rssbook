@@ -1,10 +1,13 @@
 use clap::Parser;
+use color_print::cprintln;
 use reqwest::Client;
 use url::Url;
 
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use crate::book::BookBuilder;
+use crate::book::{BookInner, build_book};
 use crate::epub::create_epubs;
 use crate::error::AppResult;
 use crate::image_download::ImageDownloader;
@@ -17,7 +20,10 @@ mod html;
 mod image_download;
 mod upload;
 
-async fn run(device_url: Option<String>) -> AppResult<()> {
+async fn run(config_path: &Path, device_url: Option<String>) -> AppResult<()> {
+    let config_contents = fs::read_to_string(config_path)?;
+    let config: BookInner = toml::from_str(&config_contents)?;
+
     let client = Client::builder()
         .pool_max_idle_per_host(20)
         .connect_timeout(Duration::from_secs(10))
@@ -26,74 +32,24 @@ async fn run(device_url: Option<String>) -> AppResult<()> {
 
     let image_downloader = ImageDownloader::new(client.clone());
 
-    let book = BookBuilder::new()
-        .category(
-            "Blogs",
-            vec![
-                (
-                    "Hashimoto".to_string(),
-                    Url::parse("https://mitchellh.com/feed.xml")?,
-                    Some("footer, title".to_string()),
-                ),
-                (
-                    "Codeberg".to_string(),
-                    Url::parse("https://blog.codeberg.org/feeds/all.atom.xml")?,
-                    None,
-                ),
-                (
-                    "Andrew Kelly".to_string(),
-                    Url::parse("https://andrewkelley.me/rss.xml")?,
-                    None,
-                ),
-                (
-                    "Orhun".to_string(),
-                    Url::parse("https://blog.orhun.dev/rss.xml")?,
-                    None,
-                ),
-                (
-                    "DHH".to_string(),
-                    Url::parse("https://world.hey.com/dhh/feed.atom")?,
-                    None,
-                ),
-            ],
-            Some(30),
-        )
-        .category(
-            "News",
-            vec![
-                (
-                    "Udland".to_string(),
-                    Url::parse("https://www.dr.dk/nyheder/service/feeds/udland")?,
-                    Some(".dre-label-text__text, .dre-share-link, .dre-byline, title, [class^=\"BrandLabel\"], [class*=\"truncated-text\"], [class*=\"title-container\"], [class*=\"progress-bar-container\"], [class*=\"read-more\"]".to_string()),
-                ),
-                (
-                    "Indland".to_string(),
-                    Url::parse("https://www.dr.dk/nyheder/service/feeds/indland")?,
-                    Some(".dre-label-text__text, .dre-share-link, .dre-byline, title, [class^=\"BrandLabel\"], [class*=\"truncated-text\"], [class*=\"title-container\"], [class*=\"progress-bar-container\"], [class*=\"read-more\"]".to_string()),
-                ),
-            ],
-            Some(3)
-        )
-        .build(&client, &image_downloader)
-        .await?;
-
+    let book = build_book(&config, &client, &image_downloader).await?;
     let epubs = create_epubs(&book)?;
 
     println!("Book generation is done");
 
     if let Some(device_url) = device_url {
-        println!("Starting upload");
+        cprintln!("Starting upload");
 
         let device_url = Url::parse(&device_url)?;
 
         for epub in epubs {
-            print!("Uploading {}... ", epub.to_string_lossy());
+            print!("Uploading <blue>{}</>... ", epub.to_string_lossy());
             upload(&epub, &device_url).await?;
-            println!("done");
+            cprintln!("<green>done</>");
         }
     }
 
-    println!("Complete");
+    cprintln!("<green>Complete</>");
 
     Ok(())
 }
@@ -102,6 +58,9 @@ async fn run(device_url: Option<String>) -> AppResult<()> {
 #[command(name = "rssbook")]
 #[command(about = "RSS feeds into an EPUB", version)]
 struct Args {
+    #[clap(long, default_value = "./rssbook.toml")]
+    config: PathBuf,
+
     /// URL for `CrossPoint` device
     #[clap(long)]
     upload: Option<String>,
@@ -111,7 +70,7 @@ struct Args {
 async fn main() {
     let cli = Args::parse();
 
-    if let Err(error) = run(cli.upload).await {
+    if let Err(error) = run(&cli.config, cli.upload).await {
         eprintln!("{error}");
     }
 }

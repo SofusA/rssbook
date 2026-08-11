@@ -1,0 +1,38 @@
+[[categories]]
+name = "Blogs"
+oldest_article = 30
+
+[[categories.feeds]]
+title = "Hashimoto"
+url = "https://mitchellh.com/feed.xml"
+filter = "footer, title"
+
+[[categories.feeds]]
+title = "Codeberg"
+url = "https://blog.codeberg.org/feeds/all.atom.xml"
+
+[[categories.feeds]]
+title = "Andrew Kelly"
+url = "https://andrewkelley.me/rss.xml"
+
+[[categories.feeds]]
+title = "Orhun"
+url = "https://blog.orhun.dev/rss.xml"
+
+[[categories.feeds]]
+title = "DHH"
+url = "https://world.hey.com/dhh/feed.atom"
+
+[[categories]]
+name = "News"
+oldest_article = 3
+
+[[categories.feeds]]
+title = "Udland"
+url = "https://www.dr.dk/nyheder/service/feeds/udland"
+filter = """.dre-label-text__text, .dre-share-link, .dre-byline, title, [class^="BrandLabel"], [class*="truncated-text"], [class*="title-container"], [class*="progress-bar-container"], [class*="read-more"]"""
+
+[[categories.feeds]]
+title = "Indland"
+url = "https://www.dr.dk/nyheder/service/feeds/indland"
+filter = """.dre-label-text__text, .dre-share-link, .dre-byline, title, [class^="BrandLabel"], [class*="truncated-text"], [class*="title-container"], [class*="progress-bar-container"], [class*="read-more"]"""

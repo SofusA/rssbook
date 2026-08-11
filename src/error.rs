@@ -32,6 +32,9 @@ pub enum AppError {
     Image(#[from] image::ImageError),
 
     #[error(transparent)]
+    Deserialize(#[from] toml::de::Error),
+
+    #[error(transparent)]
     TaskJoin(#[from] tokio::task::JoinError),
 
     #[error(transparent)]

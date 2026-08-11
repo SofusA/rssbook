@@ -111,45 +111,33 @@ impl Article {
     }
 }
 
-pub struct BookBuilder {
+#[derive(serde::Deserialize)]
+pub struct BookInner {
     categories: Vec<CategoryInner>,
 }
 
+#[derive(serde::Deserialize)]
 struct CategoryInner {
     name: String,
-    feeds: Vec<(String, Url, Option<String>)>,
+    feeds: Vec<RssFeedInner>,
     oldest_article: Option<u64>,
 }
 
-impl BookBuilder {
-    pub fn new() -> Self {
-        Self { categories: vec![] }
-    }
+#[derive(serde::Deserialize)]
+struct RssFeedInner {
+    title: String,
+    url: Url,
+    filter: Option<String>,
+}
 
-    pub fn category(
-        mut self,
-        name: &str,
-        feeds: Vec<(String, Url, Option<String>)>,
-        oldest_article: Option<u64>,
-    ) -> Self {
-        self.categories.push(CategoryInner {
-            name: name.to_string(),
-            feeds,
-            oldest_article,
-        });
+pub async fn build_book(
+    book: &BookInner,
+    client: &Client,
+    image_downloader: &ImageDownloader,
+) -> AppResult<Book> {
+    let categories = build_categories(&book.categories, client, image_downloader).await?;
 
-        self
-    }
-
-    pub async fn build(
-        &self,
-        client: &Client,
-        image_downloader: &ImageDownloader,
-    ) -> AppResult<Book> {
-        let categories = build_categories(&self.categories, client, image_downloader).await?;
-
-        Ok(Book { categories })
-    }
+    Ok(Book { categories })
 }
 
 async fn build_categories(
@@ -193,12 +181,12 @@ async fn build_category(
 async fn build_feed(
     category_index: usize,
     feed_index: usize,
-    feed: &(String, Url, Option<String>),
+    feed: &RssFeedInner,
     oldest_article: Option<u64>,
     client: &Client,
     image_downloader: &ImageDownloader,
 ) -> AppResult<RssFeed> {
-    let channel = parse_feed(feed.1.clone(), client).await?;
+    let channel = parse_feed(feed.url.clone(), client).await?;
 
     let articles = try_join_all(
         channel
@@ -214,7 +202,7 @@ async fn build_feed(
                     article_index,
                     title,
                     link,
-                    feed.2.as_deref(),
+                    feed.filter.as_deref(),
                     client,
                     image_downloader,
                 )
@@ -223,7 +211,7 @@ async fn build_feed(
     .await?;
 
     Ok(RssFeed {
-        name: feed.0.clone(),
+        name: feed.title.clone(),
         articles,
     })
 }
