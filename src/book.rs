@@ -196,7 +196,6 @@ async fn build_category(
         build_feed(
             category_index,
             index,
-            category.name(),
             feed,
             category.oldest_article,
             read_articles,
@@ -215,7 +214,6 @@ async fn build_category(
 async fn build_feed(
     category_index: usize,
     feed_index: usize,
-    category_name: &str,
     feed: &RssFeedInner,
     oldest_article: Option<u64>,
     read_articles: &ReadArticles,
@@ -231,7 +229,7 @@ async fn build_feed(
             .filter(|entry| is_recent_enough(entry, oldest_article))
             .enumerate()
             .filter_map(article_details)
-            .filter(|(_, title, _)| !read_articles.contains(category_name, feed.title(), title))
+            .filter(|(_, _, link)| !read_articles.contains(link))
             .map(|(article_index, title, link)| {
                 build_article(
                     category_index,

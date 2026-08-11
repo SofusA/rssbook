@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     fs,
     io::{self, ErrorKind},
 };
@@ -273,28 +274,12 @@ fn total_rows(book: &[CategoryArticleList]) -> usize {
 }
 
 fn apply_saved_selection(book: &mut [CategoryArticleList], saved: &ReadArticles) {
-    for category in book {
-        let Some(saved_category) = saved
-            .categories
-            .iter()
-            .find(|saved| saved.name == category.name)
-        else {
-            continue;
-        };
-
-        for feed in &mut category.feeds {
-            let Some(saved_feed) = saved_category
-                .feeds
-                .iter()
-                .find(|saved| saved.name == feed.name)
-            else {
-                continue;
-            };
-
-            for article in &mut feed.articles {
-                article.selected = saved_feed.articles.iter().any(|name| name == &article.name);
-            }
-        }
+    for article in book
+        .iter_mut()
+        .flat_map(|category| category.feeds.iter_mut())
+        .flat_map(|feed| feed.articles.iter_mut())
+    {
+        article.selected = saved.contains(&article.url);
     }
 }
 
@@ -317,73 +302,29 @@ struct FeedArticleList {
 
 struct Article {
     name: String,
+    url: String,
     selected: bool,
 }
 
 #[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct ReadArticles {
-    categories: Vec<ReadCategory>,
-}
-
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
-pub struct ReadCategory {
-    name: String,
-    feeds: Vec<ReadFeed>,
-}
-
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
-pub struct ReadFeed {
-    name: String,
-    articles: Vec<String>,
+    articles: HashSet<String>,
 }
 
 impl ReadArticles {
     fn from_book(book: &[CategoryArticleList]) -> Self {
-        let categories = book
+        let articles = book
             .iter()
-            .filter_map(|category| {
-                let feeds = category
-                    .feeds
-                    .iter()
-                    .filter_map(|feed| {
-                        let articles = feed
-                            .articles
-                            .iter()
-                            .filter(|article| article.selected)
-                            .map(|article| article.name.clone())
-                            .collect::<Vec<_>>();
-
-                        if articles.is_empty() {
-                            None
-                        } else {
-                            Some(ReadFeed {
-                                name: feed.name.clone(),
-                                articles,
-                            })
-                        }
-                    })
-                    .collect::<Vec<_>>();
-
-                if feeds.is_empty() {
-                    None
-                } else {
-                    Some(ReadCategory {
-                        name: category.name.clone(),
-                        feeds,
-                    })
-                }
-            })
+            .flat_map(|category| &category.feeds)
+            .flat_map(|feed| &feed.articles)
+            .filter(|article| article.selected)
+            .map(|article| article.url.clone())
             .collect();
 
-        Self { categories }
+        Self { articles }
     }
-
-    pub fn contains(&self, category_name: &str, feed_name: &str, article_name: &str) -> bool {
-        self.categories
-            .iter()
-            .find(|category| category.name == category_name)
-            .and_then(|category| category.feeds.iter().find(|feed| feed.name == feed_name))
-            .is_some_and(|feed| feed.articles.iter().any(|article| article == article_name))
+    pub fn contains(&self, url: &str) -> bool {
+        self.articles.contains(url)
     }
 }
 
@@ -398,8 +339,9 @@ async fn list_articles(book: &BookInner, client: &Client) -> AppResult<Vec<Categ
                 .filter(|entry| is_recent_enough(entry, category.oldest_article()))
                 .enumerate()
                 .filter_map(article_details)
-                .map(|(_, title, _link)| Article {
+                .map(|(_, title, link)| Article {
                     name: title,
+                    url: link,
                     selected: false,
                 })
                 .collect();
