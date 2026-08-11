@@ -7,7 +7,6 @@ edition = "2024"
 epub-builder = "0.8"
 tokio = { version = "1", features = ["full"] }
 reqwest = { version = "0.12", features = ["rustls-tls", "multipart", "stream"] }
-infer = "0.16"
 thiserror = "2"
 url = "2"
 rss = "2"
@@ -26,8 +25,8 @@ serde = { version = "1", features = ["derive"] }
 toml = "1.1.4"
 curl = "0.4.50"
 
-ratatui = "0.29"
-crossterm = "0.28"
+ratatui = "0.30"
+crossterm = "0.29"
 
 [lints.clippy]
 pedantic = { level = "warn", priority = -1 }

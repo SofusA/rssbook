@@ -1,4 +1,7 @@
-use std::{fs, io};
+use std::{
+    fs,
+    io::{self, ErrorKind},
+};
 
 use crossterm::{
     event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
@@ -25,12 +28,22 @@ use crate::{
 
 const READ_ARTICLES_FILE: &str = "read_articles.toml";
 
-pub async fn run_select(book: &BookInner, client: &Client) -> AppResult<()> {
+pub fn read_read_articles() -> AppResult<ReadArticles> {
+    let contents = match fs::read_to_string(READ_ARTICLES_FILE) {
+        Ok(contents) => contents,
+        Err(error) if error.kind() == ErrorKind::NotFound => {
+            return Ok(ReadArticles::default());
+        }
+        Err(error) => return Err(error.into()),
+    };
+
+    Ok(toml::from_str(&contents)?)
+}
+
+pub async fn run_select(book: &BookInner, client: &Client) -> AppResult<ReadArticles> {
     let mut book = list_articles(book, client).await?;
 
-    if let Ok(contents) = fs::read_to_string(READ_ARTICLES_FILE)
-        && let Ok(saved) = toml::from_str::<ReadArticles>(&contents)
-    {
+    if let Ok(saved) = read_read_articles() {
         apply_saved_selection(&mut book, &saved);
     }
 
@@ -41,7 +54,7 @@ pub async fn run_select(book: &BookInner, client: &Client) -> AppResult<()> {
 
     fs::write(READ_ARTICLES_FILE, contents).map_err(AppError::from)?;
 
-    Ok(())
+    Ok(saved)
 }
 
 fn run_tui(book: &mut [CategoryArticleList]) -> AppResult<()> {
@@ -292,37 +305,34 @@ struct SelectableArticle {
     row: usize,
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
 struct CategoryArticleList {
     name: String,
     feeds: Vec<FeedArticleList>,
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
 struct FeedArticleList {
     name: String,
     articles: Vec<Article>,
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
 struct Article {
     name: String,
     selected: bool,
 }
 
 #[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
-struct ReadArticles {
+pub struct ReadArticles {
     categories: Vec<ReadCategory>,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
-struct ReadCategory {
+pub struct ReadCategory {
     name: String,
     feeds: Vec<ReadFeed>,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
-struct ReadFeed {
+pub struct ReadFeed {
     name: String,
     articles: Vec<String>,
 }
@@ -366,6 +376,14 @@ impl ReadArticles {
             .collect();
 
         Self { categories }
+    }
+
+    pub fn contains(&self, category_name: &str, feed_name: &str, article_name: &str) -> bool {
+        self.categories
+            .iter()
+            .find(|category| category.name == category_name)
+            .and_then(|category| category.feeds.iter().find(|feed| feed.name == feed_name))
+            .is_some_and(|feed| feed.articles.iter().any(|article| article == article_name))
     }
 }
 

@@ -7,7 +7,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use crate::article_select::run_select;
+use crate::article_select::{read_read_articles, run_select};
 use crate::book::{BookInner, build_book};
 use crate::epub::create_epubs;
 use crate::error::AppResult;
@@ -32,16 +32,15 @@ async fn run(config_path: &Path, device_url: Option<String>, select: bool) -> Ap
         .timeout(Duration::from_mins(1))
         .build()?;
 
-    if select {
-        run_select(&config, &client).await?;
-
-        // TODO: Remove
-        return Ok(());
-    }
+    let read_articles = if select {
+        run_select(&config, &client).await?
+    } else {
+        read_read_articles()?
+    };
 
     let image_downloader = ImageDownloader::new(client.clone());
 
-    let book = build_book(&config, &client, &image_downloader).await?;
+    let book = build_book(&config, &read_articles, &client, &image_downloader).await?;
 
     let epubs = create_epubs(&book)?;
 

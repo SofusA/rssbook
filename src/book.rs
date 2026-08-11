@@ -6,6 +6,7 @@ use futures::future::try_join_all;
 use reqwest::Client;
 use url::Url;
 
+use crate::article_select::ReadArticles;
 use crate::error::AppResult;
 use crate::html::process_article_html;
 use crate::image_download::ImageDownloader;
@@ -162,31 +163,32 @@ impl RssFeedInner {
 
 pub async fn build_book(
     book: &BookInner,
+    read_articles: &ReadArticles,
     client: &Client,
     image_downloader: &ImageDownloader,
 ) -> AppResult<Book> {
-    let categories = build_categories(&book.categories, client, image_downloader).await?;
+    let categories =
+        build_categories(&book.categories, read_articles, client, image_downloader).await?;
 
     Ok(Book { categories })
 }
 
 async fn build_categories(
     categories: &[CategoryInner],
+    read_articles: &ReadArticles,
     client: &Client,
     image_downloader: &ImageDownloader,
 ) -> AppResult<Vec<Category>> {
-    try_join_all(
-        categories
-            .iter()
-            .enumerate()
-            .map(|(index, category)| build_category(index, category, client, image_downloader)),
-    )
+    try_join_all(categories.iter().enumerate().map(|(index, category)| {
+        build_category(index, category, read_articles, client, image_downloader)
+    }))
     .await
 }
 
 async fn build_category(
     category_index: usize,
     category: &CategoryInner,
+    read_articles: &ReadArticles,
     client: &Client,
     image_downloader: &ImageDownloader,
 ) -> AppResult<Category> {
@@ -194,8 +196,10 @@ async fn build_category(
         build_feed(
             category_index,
             index,
+            category.name(),
             feed,
             category.oldest_article,
+            read_articles,
             client,
             image_downloader,
         )
@@ -211,8 +215,10 @@ async fn build_category(
 async fn build_feed(
     category_index: usize,
     feed_index: usize,
+    category_name: &str,
     feed: &RssFeedInner,
     oldest_article: Option<u64>,
+    read_articles: &ReadArticles,
     client: &Client,
     image_downloader: &ImageDownloader,
 ) -> AppResult<RssFeed> {
@@ -225,6 +231,7 @@ async fn build_feed(
             .filter(|entry| is_recent_enough(entry, oldest_article))
             .enumerate()
             .filter_map(article_details)
+            .filter(|(_, title, _)| !read_articles.contains(category_name, feed.title(), title))
             .map(|(article_index, title, link)| {
                 build_article(
                     category_index,
