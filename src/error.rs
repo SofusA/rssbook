@@ -35,13 +35,19 @@ pub enum AppError {
     Deserialize(#[from] toml::de::Error),
 
     #[error(transparent)]
+    Form(#[from] curl::FormError),
+
+    #[error(transparent)]
+    CurlHttp(#[from] curl::Error),
+
+    #[error(transparent)]
     TaskJoin(#[from] tokio::task::JoinError),
 
     #[error(transparent)]
     Semaphore(#[from] tokio::sync::AcquireError),
 
-    #[error("Error serializing epub file path")]
-    FileNameEncodingError,
+    #[error("Directory creation returned HTTP {0}")]
+    CreateDirectory(u32),
 }
 
 impl<'a> From<scraper::error::SelectorErrorKind<'a>> for AppError {

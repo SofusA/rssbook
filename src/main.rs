@@ -35,18 +35,11 @@ async fn run(config_path: &Path, device_url: Option<String>) -> AppResult<()> {
     let book = build_book(&config, &client, &image_downloader).await?;
     let epubs = create_epubs(&book)?;
 
-    println!("Book generation is done");
+    cprintln!("<green>Book generation is done</>");
 
     if let Some(device_url) = device_url {
-        cprintln!("Starting upload");
-
         let device_url = Url::parse(&device_url)?;
-
-        for epub in epubs {
-            print!("Uploading <blue>{}</>... ", epub.to_string_lossy());
-            upload(&epub, &device_url).await?;
-            cprintln!("<green>done</>");
-        }
+        upload(&epubs, &device_url).await?;
     }
 
     cprintln!("<green>Complete</>");

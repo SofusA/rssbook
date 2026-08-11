@@ -1,36 +1,90 @@
-use std::path::Path;
-
-use reqwest::{Client, header::EXPECT, multipart};
-use tokio::fs;
+use color_print::cprintln;
+use curl::easy::{Easy, Form};
+use std::{
+    path::{Path, PathBuf},
+    thread,
+    time::Duration,
+};
 use url::Url;
 
 use crate::error::{AppError, AppResult};
 
-pub async fn upload(path: &Path, device_url: &Url) -> AppResult<()> {
-    let client = Client::new();
-    let filename = path
-        .file_name()
-        .and_then(|s| s.to_str())
-        .ok_or(AppError::FileNameEncodingError)?;
+pub async fn upload(paths: &[PathBuf], device_url: &Url) -> AppResult<()> {
+    println!("Starting upload");
+    create_directory(device_url)?;
 
-    let bytes = fs::read(path).await?;
+    for epub in paths {
+        cprintln!("Uploading <blue>{}</>... ", epub.to_string_lossy());
+        upload_epub(epub, device_url).await?;
+        cprintln!("<green>done</>");
+    }
+    Ok(())
+}
 
-    let file_part = multipart::Part::bytes(bytes)
-        .file_name(filename.to_owned())
-        .mime_str("application/epub+zip")
-        .unwrap();
+async fn upload_epub(path: &Path, device_url: &Url) -> AppResult<()> {
+    let path = PathBuf::from(path);
 
-    let form = multipart::Form::new().part("file", file_part);
+    let mut upload_url = device_url.join("upload")?;
+    upload_url.query_pairs_mut().append_pair("path", "/Rss");
 
-    let upload_url = device_url.join("upload")?;
+    tokio::task::spawn_blocking(move || -> AppResult<()> {
+        let retries = 3;
 
-    client
-        .post(upload_url)
-        .header(EXPECT, "100-continue")
-        .multipart(form)
-        .send()
-        .await?
-        .error_for_status()?;
+        for attempt in 0..=retries {
+            let result = upload_once(&path, &upload_url);
+
+            match result {
+                Ok(()) => return Ok(()),
+
+                // Retry curl error 52: empty reply from server.
+                Err(error) if attempt < retries => {
+                    println!("Error uploading. Will retry. Error: {error}");
+                    thread::sleep(Duration::from_millis(100));
+                }
+
+                Err(error) => return Err(error),
+            }
+        }
+
+        Ok(())
+    })
+    .await??;
+
+    Ok(())
+}
+
+fn upload_once(path: &Path, upload_url: &Url) -> AppResult<()> {
+    let mut form = Form::new();
+
+    form.part("file")
+        .file(&path)
+        .content_type("application/epub+zip")
+        .add()?;
+
+    let mut handle = Easy::new();
+    handle.url(upload_url.as_str())?;
+    handle.httppost(form)?;
+    handle.fail_on_error(true)?;
+    handle.perform()?;
+
+    Ok(())
+}
+
+fn create_directory(device_url: &Url) -> AppResult<()> {
+    let mkdir_url = device_url.join("mkdir")?;
+
+    let mut handle = Easy::new();
+    handle.url(mkdir_url.as_str())?;
+    handle.post(true)?;
+    handle.post_fields_copy(b"name=Rss&path=/")?;
+    handle.perform()?;
+
+    let status = handle.response_code()?;
+
+    // The device returns 400 if /Rss already exists.
+    if status != 200 && status != 400 {
+        return Err(AppError::CreateDirectory(status));
+    }
 
     Ok(())
 }
