@@ -1,0 +1,11 @@
+[[categories]]
+name = "News"
+
+[[categories.feeds]]
+name = "Udland"
+articles = [
+    "'Man skulle virkelig kæmpe for at stå op': 20-årige Ida Madsine frygtede for sit liv under jordskælv",
+    "Ny anbefaling skal sætte grænse for antal børn per sæddonor",
+    "Forsker: Vi overvurderer Demokraternes venstredrejning",
+    "Sveriges statsminister lægger ikke fingrene i mellem: Spaniens udstrakte hånd til papirløse migranter er 'en meget dårlig idé'",
+]

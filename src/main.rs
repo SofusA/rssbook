@@ -34,6 +34,8 @@ async fn run(config_path: &Path, device_url: Option<String>, select: bool) -> Ap
 
     if select {
         run_select(&config, &client).await?;
+
+        // TODO: Remove
         return Ok(());
     }
 

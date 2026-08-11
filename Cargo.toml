@@ -26,6 +26,9 @@ serde = { version = "1", features = ["derive"] }
 toml = "1.1.4"
 curl = "0.4.50"
 
+ratatui = "0.29"
+crossterm = "0.28"
+
 [lints.clippy]
 pedantic = { level = "warn", priority = -1 }
 indexing_slicing = "warn"

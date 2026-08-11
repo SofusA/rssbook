@@ -46,6 +46,9 @@ pub enum AppError {
     #[error(transparent)]
     Semaphore(#[from] tokio::sync::AcquireError),
 
+    #[error(transparent)]
+    Serialize(#[from] toml::ser::Error),
+
     #[error("Directory creation returned HTTP {0}")]
     CreateDirectory(u32),
 }
