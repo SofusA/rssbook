@@ -1,6 +1,7 @@
 use color_print::cprintln;
 use curl::easy::{Easy, Form};
 use std::{
+    fs,
     path::{Path, PathBuf},
     thread,
     time::Duration,
@@ -16,8 +17,10 @@ pub async fn upload(paths: &[PathBuf], device_url: &Url) -> AppResult<()> {
     for epub in paths {
         cprintln!("Uploading <blue>{}</>... ", epub.to_string_lossy());
         upload_epub(epub, device_url).await?;
+        fs::remove_file(epub)?;
         cprintln!("<green>done</>");
     }
+
     Ok(())
 }
 
@@ -39,7 +42,7 @@ async fn upload_epub(path: &Path, device_url: &Url) -> AppResult<()> {
                 // Retry curl error 52: empty reply from server.
                 Err(error) if attempt < retries => {
                     println!("Error uploading. Will retry. Error: {error}");
-                    thread::sleep(Duration::from_millis(100));
+                    thread::sleep(Duration::from_secs(1));
                 }
 
                 Err(error) => return Err(error),

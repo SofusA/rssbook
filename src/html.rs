@@ -24,6 +24,9 @@ pub async fn process_article_html(
     let document = Html::parse_document(source_html);
 
     let selected_html = extract_article(&document);
+    let wrapped = format!("<div>{}</div>", selected_html.html());
+    let selected_html = Html::parse_fragment(&wrapped);
+
     let image_sources = collect_image_sources_from_document(&selected_html, &base_url);
 
     let downloaded_images = try_join_all(image_sources.into_iter().enumerate().map(

@@ -33,6 +33,7 @@ async fn run(config_path: &Path, device_url: Option<String>) -> AppResult<()> {
     let image_downloader = ImageDownloader::new(client.clone());
 
     let book = build_book(&config, &client, &image_downloader).await?;
+
     let epubs = create_epubs(&book)?;
 
     cprintln!("<green>Book generation is done</>");
