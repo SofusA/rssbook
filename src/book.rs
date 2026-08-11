@@ -6,7 +6,7 @@ use futures::future::try_join_all;
 use reqwest::Client;
 use url::Url;
 
-use crate::error::{AppError, AppResult};
+use crate::error::AppResult;
 use crate::html::process_article_html;
 use crate::image_download::ImageDownloader;
 
@@ -131,7 +131,7 @@ impl BookBuilder {
         name: &str,
         feeds: Vec<(String, Url, Option<String>)>,
         oldest_article: Option<u64>,
-    ) -> BookBuilder {
+    ) -> Self {
         self.categories.push(CategoryInner {
             name: name.to_string(),
             feeds,
@@ -157,112 +157,145 @@ async fn build_categories(
     client: &Client,
     image_downloader: &ImageDownloader,
 ) -> AppResult<Vec<Category>> {
-    let categories = try_join_all(
-            categories
-                .iter()
-                .enumerate()
-                .map(|(category_index, category)| async move {
-                    let feeds = try_join_all(
-                        category
-                            .feeds
-                            .iter()
-                            .enumerate()
-                            .map(|(feed_index, feed)| async move {
-                                let channel = parse_feed(feed.1.clone(), client).await?;
+    try_join_all(
+        categories
+            .iter()
+            .enumerate()
+            .map(|(index, category)| build_category(index, category, client, image_downloader)),
+    )
+    .await
+}
 
-                                let articles = try_join_all(
-                                    channel
-                                        .entries
-                                        .iter()
-                                        .filter(|entry| {
-                                            if let Some(oldest_article) = category.oldest_article {
-                                                let date = entry.published.or(entry.updated);
-                                                let Some(date) = date else {
-                                                    return false;
-                                                };
-
-                                                let Some(time_ago) = Utc::now().checked_sub_days(chrono::Days::new(oldest_article)) else {
-                                                    return false;
-                                                };
-
-                                                return date > time_ago;
-                                            }
-
-                                            true
-                                        })
-                                        .enumerate()
-                                        .filter_map(|(article_index, entry)| {
-                                            let link = entry
-                                                .links
-                                                .iter()
-                                                .find(|link| {
-                                                    link.rel
-                                                        .as_deref()
-                                                        .is_none_or(|rel| rel == "alternate")
-                                                })
-                                                .or_else(|| entry.links.first())?
-                                                .href
-                                                .clone();
-
-                                            let title = entry
-                                                .title
-                                                .as_ref()
-                                                .map(|title| title.content.clone())
-                                                .filter(|title| !title.trim().is_empty())
-                                                .unwrap_or_else(|| {
-                                                    format!(
-                                                        "Article {}",
-                                                        article_index.saturating_add(1)
-                                                    )
-                                                });
-
-                                            Some((article_index, title, link))
-                                        })
-                                        .map(|(article_index, title, link)| async move {
-                                            cprintln!("Processing  <blue>{title}</>");
-
-                                            let html = client
-                                                .get(&link)
-                                                .send()
-                                                .await?
-                                                .error_for_status()?
-                                                .text()
-                                                .await?;
-
-                                            let image_name_prefix = format!(
-                                                "category-{category_index}-feed-{feed_index}-article-{article_index}"
-                                            );
-
-                                            process_article_html(
-                                                &link,
-                                                &html,
-                                                &image_name_prefix,
-                                                title,
-                                                feed.2.as_deref(),
-                                                image_downloader,
-                                            )
-                                            .await
-                                        }),
-                                )
-                                .await?;
-
-                                Ok::<RssFeed, AppError>(RssFeed {
-                                    name: feed.0.clone(),
-                                    articles,
-                                })
-                            }),
-                    )
-                    .await?;
-
-                    Ok::<Category, AppError>(Category {
-                        name: category.name.clone(),
-                        feeds,
-                    })
-                }),
+async fn build_category(
+    category_index: usize,
+    category: &CategoryInner,
+    client: &Client,
+    image_downloader: &ImageDownloader,
+) -> AppResult<Category> {
+    let feeds = try_join_all(category.feeds.iter().enumerate().map(|(index, feed)| {
+        build_feed(
+            category_index,
+            index,
+            feed,
+            category.oldest_article,
+            client,
+            image_downloader,
         )
+    }))
+    .await?;
+
+    Ok(Category {
+        name: category.name.clone(),
+        feeds,
+    })
+}
+
+async fn build_feed(
+    category_index: usize,
+    feed_index: usize,
+    feed: &(String, Url, Option<String>),
+    oldest_article: Option<u64>,
+    client: &Client,
+    image_downloader: &ImageDownloader,
+) -> AppResult<RssFeed> {
+    let channel = parse_feed(feed.1.clone(), client).await?;
+
+    let articles = try_join_all(
+        channel
+            .entries
+            .iter()
+            .filter(|entry| is_recent_enough(entry, oldest_article))
+            .enumerate()
+            .filter_map(article_details)
+            .map(|(article_index, title, link)| {
+                build_article(
+                    category_index,
+                    feed_index,
+                    article_index,
+                    title,
+                    link,
+                    feed.2.as_deref(),
+                    client,
+                    image_downloader,
+                )
+            }),
+    )
+    .await?;
+
+    Ok(RssFeed {
+        name: feed.0.clone(),
+        articles,
+    })
+}
+
+fn is_recent_enough(entry: &feed_rs::model::Entry, oldest_article: Option<u64>) -> bool {
+    if oldest_article.is_none() {
+        return true;
+    }
+
+    let cutoff =
+        oldest_article.and_then(|days| Utc::now().checked_sub_days(chrono::Days::new(days)));
+
+    entry
+        .published
+        .or(entry.updated)
+        .zip(cutoff)
+        .is_some_and(|(date, cutoff)| date > cutoff)
+}
+
+fn article_details(
+    (article_index, entry): (usize, &feed_rs::model::Entry),
+) -> Option<(usize, String, String)> {
+    let link = entry
+        .links
+        .iter()
+        .find(|link| link.rel.as_deref().is_none_or(|rel| rel == "alternate"))
+        .or_else(|| entry.links.first())?
+        .href
+        .clone();
+
+    let title = entry
+        .title
+        .as_ref()
+        .map(|title| title.content.clone())
+        .filter(|title| !title.trim().is_empty())
+        .unwrap_or_else(|| format!("Article {}", article_index.saturating_add(1)));
+
+    Some((article_index, title, link))
+}
+
+async fn build_article(
+    category_index: usize,
+    feed_index: usize,
+    article_index: usize,
+    title: String,
+    link: String,
+    selector: Option<&str>,
+    client: &Client,
+    image_downloader: &ImageDownloader,
+) -> AppResult<Article> {
+    cprintln!("Processing  <blue>{title}</>");
+
+    let html = client
+        .get(&link)
+        .send()
+        .await?
+        .error_for_status()?
+        .text()
         .await?;
 
-    Ok(categories)
+    let image_name_prefix =
+        format!("category-{category_index}-feed-{feed_index}-article-{article_index}");
+
+    process_article_html(
+        &link,
+        &html,
+        &image_name_prefix,
+        title,
+        selector,
+        image_downloader,
+    )
+    .await
 }
 
 async fn parse_feed(url: Url, client: &Client) -> AppResult<Feed> {
