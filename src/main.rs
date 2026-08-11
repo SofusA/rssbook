@@ -68,14 +68,14 @@ struct Args {
 
     /// URL for `CrossPoint` device
     #[clap(short, long)]
-    upload: Option<String>,
+    upload_crosspoint: Option<String>,
 }
 
 #[tokio::main]
 async fn main() {
     let cli = Args::parse();
 
-    if let Err(error) = run(&cli.config, cli.upload, cli.select).await {
+    if let Err(error) = run(&cli.config, cli.upload_crosspoint, cli.select).await {
         eprintln!("{error}");
     }
 }
