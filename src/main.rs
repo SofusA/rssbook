@@ -42,14 +42,6 @@ async fn run(config_path: &Path, device_url: Option<String>, select: bool) -> Ap
 
     let book = build_book(&config, &read_articles, &client, &image_downloader).await?;
 
-    for c in book.categories() {
-        for r in c.feeds() {
-            for a in r.articles() {
-                println!("{}", a.html());
-            }
-        }
-    }
-
     let epubs = create_epubs(&book)?;
 
     cprintln!("<green>Book generation is done</>");

@@ -20,13 +20,9 @@ filter = "footer, title"
 title = "Orhun"
 url = "https://blog.orhun.dev/rss.xml"
 
-[[categories.feeds]]
-title = "DHH"
-url = "https://world.hey.com/dhh/feed.atom"
-
 [[categories]]
 name = "News"
-oldest_article = 3
+oldest_article = 2
 
 [[categories.feeds]]
 title = "Udland"
