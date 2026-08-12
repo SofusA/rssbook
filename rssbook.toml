@@ -14,6 +14,7 @@ url = "https://blog.codeberg.org/feeds/all.atom.xml"
 [[categories.feeds]]
 title = "Andrew Kelly"
 url = "https://andrewkelley.me/rss.xml"
+filter = "footer, title"
 
 [[categories.feeds]]
 title = "Orhun"
@@ -30,9 +31,33 @@ oldest_article = 3
 [[categories.feeds]]
 title = "Udland"
 url = "https://www.dr.dk/nyheder/service/feeds/udland"
-filter = """.dre-label-text__text, .dre-share-link, .dre-byline, title, [class^="BrandLabel"], [class*="truncated-text"], [class*="title-container"], [class*="progress-bar-container"], [class*="read-more"]"""
+filter = """
+.dre-label-text__text,
+.dre-share-link,
+.dre-byline,
+title,
+[class^="BrandLabel"],
+[class*="truncated-text"],
+[class*="share-band"],
+[class*="title-container"],
+[class*="progress-bar-container"],
+[class*="section-label"],
+[class*="read-more"]
+"""
 
 [[categories.feeds]]
 title = "Indland"
 url = "https://www.dr.dk/nyheder/service/feeds/indland"
-filter = """.dre-label-text__text, .dre-share-link, .dre-byline, title, [class^="BrandLabel"], [class*="truncated-text"], [class*="title-container"], [class*="progress-bar-container"], [class*="read-more"]"""
+filter = """
+.dre-label-text__text,
+.dre-share-link,
+.dre-byline,
+title,
+[class^="BrandLabel"],
+[class*="truncated-text"],
+[class*="share-band"],
+[class*="title-container"],
+[class*="progress-bar-container"],
+[class*="section-label"],
+[class*="read-more"]
+"""

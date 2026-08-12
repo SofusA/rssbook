@@ -31,7 +31,7 @@ async fn upload_epub(path: &Path, device_url: &Url) -> AppResult<()> {
     upload_url.query_pairs_mut().append_pair("path", "/Rss");
 
     tokio::task::spawn_blocking(move || -> AppResult<()> {
-        let retries = 3;
+        let retries = 5;
 
         for attempt in 0..=retries {
             let result = upload_once(&path, &upload_url);
@@ -42,7 +42,7 @@ async fn upload_epub(path: &Path, device_url: &Url) -> AppResult<()> {
                 // Retry curl error 52: empty reply from server.
                 Err(error) if attempt < retries => {
                     println!("Error uploading. Will retry. Error: {error}");
-                    thread::sleep(Duration::from_secs(1));
+                    thread::sleep(Duration::from_secs(2));
                 }
 
                 Err(error) => return Err(error),

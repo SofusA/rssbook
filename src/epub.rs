@@ -18,10 +18,20 @@ pub fn create_epubs(book: &Book) -> AppResult<Vec<PathBuf>> {
         builder.metadata("title", category.name())?;
 
         for (feed_index, feed) in category.feeds().iter().enumerate() {
+            if feed.articles().is_empty() {
+                continue;
+            }
+
+            let feed_description = format!(
+                "<div><h1>{}</h1><p>{}</p></div>",
+                feed.name(),
+                feed.description()
+            );
+
             builder.add_content(
                 EpubContent::new(
                     format!("feed_{feed_index}.html"),
-                    Cursor::new(format!("<h1>{}</h1>", feed.name())),
+                    Cursor::new(feed_description),
                 )
                 .title(feed.name())
                 .level(1),

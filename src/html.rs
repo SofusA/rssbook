@@ -76,13 +76,9 @@ fn extract_article(html: &Html) -> Html {
     html.clone()
 }
 
-fn rewrite_article_html(
-    html: &str,
-    image_replacements: HashMap<String, String>,
-    filter: Option<&str>,
-) -> AppResult<String> {
+pub fn html_sanitation(html: &str) -> AppResult<String> {
     let html = html.replace("↩", "");
-    let mut settings = RewriteStrSettings::new()
+    let settings = RewriteStrSettings::new()
         .append_element_content_handler(element!(
             "script, style, iframe, frame, frameset, object, embed, \
              applet, canvas, noscript, template, form, input, button, \
@@ -100,7 +96,6 @@ fn rewrite_article_html(
                 .map(|attribute| attribute.name().clone())
                 .filter(|name| {
                     let name = name.to_ascii_lowercase();
-
                     name == "style"
                         || name == "width"
                         || name == "height"
@@ -133,25 +128,6 @@ fn rewrite_article_html(
 
             Ok(())
         }))
-        .append_element_content_handler(element!("img", move |element| {
-            element.remove_attribute("srcset");
-            element.remove_attribute("sizes");
-            element.remove_attribute("loading");
-            element.remove_attribute("decoding");
-            element.remove_attribute("fetchpriority");
-
-            let Some(src) = element.get_attribute("src") else {
-                return Ok(());
-            };
-
-            if let Some(epub_path) = image_replacements.get(src.trim()) {
-                element.set_attribute("src", epub_path)?;
-            } else {
-                element.remove_attribute("src");
-            }
-
-            Ok(())
-        }))
         .append_element_content_handler(element!("svg", |element| {
             element.remove();
             Ok(())
@@ -173,18 +149,54 @@ fn rewrite_article_html(
             Ok(())
         }));
 
-    if let Some(filter) = filter {
-        settings = settings.append_element_content_handler(element!(filter, |element| {
-            element.remove();
-            Ok(())
-        }));
-    }
-
     let rewritten = rewrite_str(&html, settings)?;
 
     let cleaned = cleanup_dom(&rewritten).replace("&nbsp;", " ");
 
     Ok(serialize_as_xhtml(&cleaned))
+}
+
+fn rewrite_article_html(
+    html: &str,
+    image_replacements: HashMap<String, String>,
+    filter: Option<&str>,
+) -> AppResult<String> {
+    let html = if let Some(filter) = filter {
+        let settings =
+            RewriteStrSettings::new().append_element_content_handler(element!(filter, |element| {
+                element.remove();
+                Ok(())
+            }));
+
+        rewrite_str(html, settings)?
+    } else {
+        html.to_string()
+    };
+
+    let html = html_sanitation(&html)?;
+
+    let settings =
+        RewriteStrSettings::new().append_element_content_handler(element!("img", move |element| {
+            element.remove_attribute("srcset");
+            element.remove_attribute("sizes");
+            element.remove_attribute("loading");
+            element.remove_attribute("decoding");
+            element.remove_attribute("fetchpriority");
+
+            let Some(src) = element.get_attribute("src") else {
+                return Ok(());
+            };
+
+            if let Some(epub_path) = image_replacements.get(src.trim()) {
+                element.set_attribute("src", epub_path)?;
+            } else {
+                element.remove_attribute("src");
+            }
+
+            Ok(())
+        }));
+
+    Ok(rewrite_str(&html, settings)?)
 }
 
 fn cleanup_dom(html: &str) -> String {

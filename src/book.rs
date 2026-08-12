@@ -8,7 +8,7 @@ use url::Url;
 
 use crate::article_select::ReadArticles;
 use crate::error::AppResult;
-use crate::html::process_article_html;
+use crate::html::{html_sanitation, process_article_html};
 use crate::image_download::ImageDownloader;
 
 #[derive(Debug, Clone)]
@@ -71,6 +71,7 @@ impl Category {
 pub struct RssFeed {
     name: String,
     articles: Vec<Article>,
+    description: String,
 }
 
 impl RssFeed {
@@ -80,6 +81,10 @@ impl RssFeed {
 
     pub fn articles(&self) -> &[Article] {
         &self.articles
+    }
+
+    pub fn description(&self) -> &str {
+        &self.description
     }
 }
 
@@ -221,6 +226,11 @@ async fn build_feed(
     image_downloader: &ImageDownloader,
 ) -> AppResult<RssFeed> {
     let channel = parse_feed(feed.url.clone(), client).await?;
+    let description = channel
+        .description
+        .map(|x| x.content)
+        .and_then(|content| html_sanitation(&content).ok())
+        .unwrap_or_default();
 
     let articles = try_join_all(
         channel
@@ -248,6 +258,7 @@ async fn build_feed(
     Ok(RssFeed {
         name: feed.title.clone(),
         articles,
+        description,
     })
 }
 
