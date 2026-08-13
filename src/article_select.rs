@@ -338,10 +338,10 @@ async fn list_articles(book: &BookInner, client: &Client) -> AppResult<Vec<Categ
                 .iter()
                 .filter(|entry| is_recent_enough(entry, category.oldest_article()))
                 .enumerate()
-                .filter_map(article_details)
-                .map(|(_, title, link)| Article {
-                    name: title,
-                    url: link,
+                .filter_map(|x| article_details(x.0, x.1))
+                .map(|article| Article {
+                    name: article.title().to_string(),
+                    url: article.link().to_string(),
                     selected: false,
                 })
                 .collect();

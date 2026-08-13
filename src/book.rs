@@ -238,15 +238,15 @@ async fn build_feed(
             .iter()
             .filter(|entry| is_recent_enough(entry, oldest_article))
             .enumerate()
-            .filter_map(article_details)
-            .filter(|(_, _, link)| !read_articles.contains(link))
-            .map(|(article_index, title, link)| {
+            .filter_map(|x| article_details(x.0, x.1))
+            .filter(|article| !read_articles.contains(&article.link))
+            .map(|article| {
                 build_article(
                     category_index,
                     feed_index,
-                    article_index,
-                    title,
-                    link,
+                    article.index,
+                    article.title,
+                    article.link,
                     feed.filter.as_deref(),
                     client,
                     image_downloader,
@@ -277,9 +277,23 @@ pub fn is_recent_enough(entry: &feed_rs::model::Entry, oldest_article: Option<u6
         .is_some_and(|(date, cutoff)| date > cutoff)
 }
 
-pub fn article_details(
-    (article_index, entry): (usize, &feed_rs::model::Entry),
-) -> Option<(usize, String, String)> {
+pub struct ArticleDetails {
+    title: String,
+    link: String,
+    index: usize,
+}
+
+impl ArticleDetails {
+    pub fn title(&self) -> &str {
+        &self.title
+    }
+
+    pub fn link(&self) -> &str {
+        &self.link
+    }
+}
+
+pub fn article_details(index: usize, entry: &feed_rs::model::Entry) -> Option<ArticleDetails> {
     let link = entry
         .links
         .iter()
@@ -293,9 +307,9 @@ pub fn article_details(
         .as_ref()
         .map(|title| title.content.clone())
         .filter(|title| !title.trim().is_empty())
-        .unwrap_or_else(|| format!("Article {}", article_index.saturating_add(1)));
+        .unwrap_or_else(|| format!("Article {}", index.saturating_add(1)));
 
-    Some((article_index, title, link))
+    Some(ArticleDetails { title, link, index })
 }
 
 async fn build_article(
