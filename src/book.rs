@@ -4,6 +4,7 @@ use feed_rs::model::Feed;
 use feed_rs::parser;
 use futures::future::try_join_all;
 use reqwest::Client;
+use reqwest::header::COOKIE;
 use url::Url;
 
 use crate::article_select::ReadArticles;
@@ -154,6 +155,7 @@ pub struct RssFeedInner {
     title: String,
     url: Url,
     filter: Option<String>,
+    auth: Option<Auth>,
 }
 
 impl RssFeedInner {
@@ -164,6 +166,11 @@ impl RssFeedInner {
     pub fn title(&self) -> &str {
         &self.title
     }
+}
+
+#[derive(serde::Deserialize)]
+struct Auth {
+    cookie: Option<String>,
 }
 
 pub async fn build_book(
@@ -247,6 +254,7 @@ async fn build_feed(
                     article.index,
                     article.title,
                     article.link,
+                    feed.auth.as_ref(),
                     feed.filter.as_deref(),
                     client,
                     image_downloader,
@@ -318,19 +326,21 @@ async fn build_article(
     article_index: usize,
     title: String,
     link: String,
+    auth: Option<&Auth>,
     selector: Option<&str>,
     client: &Client,
     image_downloader: &ImageDownloader,
 ) -> AppResult<Article> {
     cprintln!("Processing  <blue>{title}</>");
+    let mut request = client.get(&link);
 
-    let html = client
-        .get(&link)
-        .send()
-        .await?
-        .error_for_status()?
-        .text()
-        .await?;
+    if let Some(auth) = auth
+        && let Some(cookie) = &auth.cookie
+    {
+        request = request.header(COOKIE, cookie);
+    }
+
+    let html = request.send().await?.error_for_status()?.text().await?;
 
     let image_name_prefix =
         format!("category-{category_index}-feed-{feed_index}-article-{article_index}");
