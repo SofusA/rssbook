@@ -96,7 +96,7 @@ fn process_image(source_bytes: bytes::Bytes) -> AppResult<ProcessedImage> {
     let image = image.to_rgb8();
     let mut output = Vec::new();
 
-    JpegEncoder::new_with_quality(&mut output, 65).encode(
+    JpegEncoder::new_with_quality(&mut output, 45).encode(
         image.as_raw(),
         image.width(),
         image.height(),

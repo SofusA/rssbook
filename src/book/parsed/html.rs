@@ -145,14 +145,13 @@ pub fn html_sanitation(html: &str) -> AppResult<String> {
             element.remove_and_keep_content();
             Ok(())
         }))
-        .append_element_content_handler(element!("picture", |element| {
-            element.set_tag_name("p")?;
-            Ok(())
-        }))
-        .append_element_content_handler(element!("figcaption", |element| {
-            element.set_tag_name("p")?;
-            Ok(())
-        }));
+        .append_element_content_handler(element!(
+            "picture, figcaption, header, section, aside",
+            |element| {
+                element.set_tag_name("p")?;
+                Ok(())
+            }
+        ));
 
     let rewritten = rewrite_str(&html, settings)?;
     let rewritten = cleanup_dom(&rewritten).replace("&nbsp;", " ");
