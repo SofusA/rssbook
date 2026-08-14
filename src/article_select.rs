@@ -336,7 +336,7 @@ async fn list_articles(book: &BookInner, client: &Client) -> AppResult<Vec<Categ
             let articles = channel
                 .entries
                 .iter()
-                .filter(|entry| is_recent_enough(entry, category.oldest_article()))
+                .filter(|entry| is_recent_enough(entry, feed.oldest_article()))
                 .enumerate()
                 .filter_map(|x| article_details(x.0, x.1))
                 .map(|article| Article {

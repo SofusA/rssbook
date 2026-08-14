@@ -118,7 +118,6 @@ impl Article {
     }
 }
 
-#[derive(serde::Deserialize)]
 pub struct BookInner {
     categories: Vec<CategoryInner>,
 }
@@ -128,12 +127,9 @@ impl BookInner {
         &self.categories
     }
 }
-
-#[derive(serde::Deserialize)]
 pub struct CategoryInner {
     name: String,
     feeds: Vec<RssFeedInner>,
-    oldest_article: Option<u64>,
 }
 
 impl CategoryInner {
@@ -144,16 +140,12 @@ impl CategoryInner {
     pub fn name(&self) -> &str {
         &self.name
     }
-
-    pub fn oldest_article(&self) -> Option<u64> {
-        self.oldest_article
-    }
 }
 
-#[derive(serde::Deserialize)]
 pub struct RssFeedInner {
     title: String,
     url: Url,
+    oldest_article: Option<u64>,
     filter: Option<String>,
     auth: Option<Auth>,
 }
@@ -166,11 +158,88 @@ impl RssFeedInner {
     pub fn title(&self) -> &str {
         &self.title
     }
+
+    pub fn oldest_article(&self) -> Option<u64> {
+        self.oldest_article
+    }
+}
+
+enum Auth {
+    Cookie(String),
+}
+
+impl Auth {
+    fn from_deserialized(auth: AuthDeserializedChange) -> Option<Self> {
+        auth.cookie.map(Auth::Cookie)
+    }
 }
 
 #[derive(serde::Deserialize)]
-struct Auth {
+pub struct BookDeserializedChange {
+    categories: Vec<CategoryDeserializedChange>,
+    oldest_article: Option<u64>,
+    filter: Option<String>,
+    auth: Option<AuthDeserializedChange>,
+}
+
+#[derive(serde::Deserialize)]
+pub struct CategoryDeserializedChange {
+    name: String,
+    feeds: Vec<RssFeedDeserializedChange>,
+    oldest_article: Option<u64>,
+    filter: Option<String>,
+    auth: Option<AuthDeserializedChange>,
+}
+
+#[derive(serde::Deserialize)]
+pub struct RssFeedDeserializedChange {
+    title: String,
+    url: Url,
+    oldest_article: Option<u64>,
+    filter: Option<String>,
+    auth: Option<AuthDeserializedChange>,
+}
+
+#[derive(Clone, serde::Deserialize)]
+struct AuthDeserializedChange {
     cookie: Option<String>,
+}
+
+impl From<BookDeserializedChange> for BookInner {
+    fn from(book: BookDeserializedChange) -> Self {
+        let categories = book
+            .categories
+            .into_iter()
+            .map(|category| {
+                let oldest_article = category.oldest_article.or(book.oldest_article);
+                let filter = category.filter.or_else(|| book.filter.clone());
+                let auth = category.auth.or_else(|| book.auth.clone());
+
+                let feeds = category
+                    .feeds
+                    .into_iter()
+                    .map(|feed| RssFeedInner {
+                        title: feed.title,
+                        url: feed.url,
+                        oldest_article: feed.oldest_article.or(oldest_article),
+                        filter: feed.filter.or_else(|| filter.clone()),
+
+                        auth: feed
+                            .auth
+                            .or_else(|| auth.clone())
+                            .and_then(Auth::from_deserialized),
+                    })
+                    .collect();
+
+                CategoryInner {
+                    name: category.name,
+                    feeds,
+                }
+            })
+            .collect();
+
+        BookInner { categories }
+    }
 }
 
 pub async fn build_book(
@@ -209,7 +278,6 @@ async fn build_category(
             category_index,
             index,
             feed,
-            category.oldest_article,
             read_articles,
             client,
             image_downloader,
@@ -227,7 +295,6 @@ async fn build_feed(
     category_index: usize,
     feed_index: usize,
     feed: &RssFeedInner,
-    oldest_article: Option<u64>,
     read_articles: &ReadArticles,
     client: &Client,
     image_downloader: &ImageDownloader,
@@ -243,7 +310,7 @@ async fn build_feed(
         channel
             .entries
             .iter()
-            .filter(|entry| is_recent_enough(entry, oldest_article))
+            .filter(|entry| is_recent_enough(entry, feed.oldest_article))
             .enumerate()
             .filter_map(|x| article_details(x.0, x.1))
             .filter(|article| !read_articles.contains(&article.link))
@@ -334,10 +401,12 @@ async fn build_article(
     cprintln!("Processing  <blue>{title}</>");
     let mut request = client.get(&link);
 
-    if let Some(auth) = auth
-        && let Some(cookie) = &auth.cookie
-    {
-        request = request.header(COOKIE, cookie);
+    if let Some(auth) = auth {
+        match auth {
+            Auth::Cookie(cookie) => {
+                request = request.header(COOKIE, cookie);
+            }
+        }
     }
 
     let html = request.send().await?.error_for_status()?.text().await?;

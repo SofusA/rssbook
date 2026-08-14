@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use crate::article_select::{read_read_articles, run_select};
-use crate::book::{BookInner, build_book};
+use crate::book::{BookDeserializedChange, build_book};
 use crate::epub::create_epubs;
 use crate::error::AppResult;
 use crate::image_download::ImageDownloader;
@@ -24,7 +24,8 @@ mod upload;
 
 async fn run(config_path: &Path, device_url: Option<String>, select: bool) -> AppResult<()> {
     let config_contents = fs::read_to_string(config_path)?;
-    let config: BookInner = toml::from_str(&config_contents)?;
+    let config: BookDeserializedChange = toml::from_str(&config_contents)?;
+    let config = config.into();
 
     let client = Client::builder()
         .pool_max_idle_per_host(20)
