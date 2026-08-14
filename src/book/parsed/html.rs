@@ -6,7 +6,7 @@ use scraper::{ElementRef, Html, HtmlTreeSink, Node, Selector};
 use url::Url;
 
 use crate::{
-    book::{Article, Image},
+    book::parsed::{Article, Image},
     error::{AppError, AppResult},
     image_download::ImageDownloader,
 };
@@ -53,7 +53,7 @@ pub async fn process_article_html(
 
     let image_replacements = downloaded_images
         .iter()
-        .map(|(original_src, image)| (original_src.clone(), image.epub_path().to_string()))
+        .map(|(original_src, image)| (original_src.clone(), image.epub_path.clone()))
         .collect::<HashMap<_, _>>();
 
     let rewritten_html = rewrite_article_html(&selected_html.html(), image_replacements, filter)?;
@@ -63,7 +63,11 @@ pub async fn process_article_html(
         .map(|(_, image)| image)
         .collect();
 
-    Ok(Article::new(images, rewritten_html, title))
+    Ok(Article {
+        images,
+        html: rewritten_html,
+        title,
+    })
 }
 
 fn extract_article(html: &Html) -> Html {

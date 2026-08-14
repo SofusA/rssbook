@@ -10,7 +10,7 @@ use std::sync::Arc;
 use tokio::sync::{Mutex, OnceCell, Semaphore};
 
 use crate::AppResult;
-use crate::book::Image;
+use crate::book::parsed::Image;
 use crate::error::AppError;
 
 #[derive(Debug)]

@@ -23,7 +23,10 @@ use ratatui::{
 use reqwest::Client;
 
 use crate::{
-    book::{BookInner, article_details, is_recent_enough, parse_feed},
+    book::{
+        model,
+        parsed::{article_details, is_recent_enough, parse_feed},
+    },
     error::{AppError, AppResult},
 };
 
@@ -41,7 +44,7 @@ pub fn read_read_articles() -> AppResult<ReadArticles> {
     Ok(toml::from_str(&contents)?)
 }
 
-pub async fn run_select(book: &BookInner, client: &Client) -> AppResult<ReadArticles> {
+pub async fn run_select(book: &model::Book, client: &Client) -> AppResult<ReadArticles> {
     let mut book = list_articles(book, client).await?;
 
     if let Ok(saved) = read_read_articles() {
@@ -323,12 +326,13 @@ impl ReadArticles {
 
         Self { articles }
     }
+
     pub fn contains(&self, url: &str) -> bool {
         self.articles.contains(url)
     }
 }
 
-async fn list_articles(book: &BookInner, client: &Client) -> AppResult<Vec<CategoryArticleList>> {
+async fn list_articles(book: &model::Book, client: &Client) -> AppResult<Vec<CategoryArticleList>> {
     try_join_all(book.categories().iter().map(|category| async move {
         let feeds = try_join_all(category.feeds().iter().map(|feed| async move {
             let channel = parse_feed(feed.url().clone(), client).await?;

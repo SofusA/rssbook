@@ -3,29 +3,22 @@ use color_print::cprintln;
 use reqwest::Client;
 use url::Url;
 
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use crate::article_select::{read_read_articles, run_select};
-use crate::book::{BookDeserializedChange, build_book};
-use crate::epub::create_epubs;
+use crate::book::config;
 use crate::error::AppResult;
-use crate::image_download::ImageDownloader;
 use crate::upload::upload;
 
 mod article_select;
 mod book;
-mod epub;
 mod error;
-mod html;
 mod image_download;
 mod upload;
 
 async fn run(config_path: &Path, device_url: Option<String>, select: bool) -> AppResult<()> {
-    let config_contents = fs::read_to_string(config_path)?;
-    let config: BookDeserializedChange = toml::from_str(&config_contents)?;
-    let config = config.into();
+    let config = config::Book::from_path(config_path)?.into();
 
     let client = Client::builder()
         .pool_max_idle_per_host(20)
@@ -39,11 +32,8 @@ async fn run(config_path: &Path, device_url: Option<String>, select: bool) -> Ap
         read_read_articles()?
     };
 
-    let image_downloader = ImageDownloader::new(client.clone());
-
-    let book = build_book(&config, &read_articles, &client, &image_downloader).await?;
-
-    let epubs = create_epubs(&book)?;
+    let book = config.parse(&read_articles, &client).await?;
+    let epubs = book.build_epubs()?;
 
     cprintln!("<green>Book generation is done</>");
 
