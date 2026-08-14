@@ -5,55 +5,70 @@ oldest_article = 30
 [[categories.feeds]]
 title = "Hashimoto"
 url = "https://mitchellh.com/feed.xml"
-filter = "footer, title"
+filter = """
+  footer,
+  title,
+  aside,
+  [href="/"]
+"""
 
 [[categories.feeds]]
 title = "Codeberg"
 url = "https://blog.codeberg.org/feeds/all.atom.xml"
+filter = "aside"
+article_selector = '[class="content"]'
 
 [[categories.feeds]]
 title = "Andrew Kelly"
 url = "https://andrewkelley.me/rss.xml"
-filter = "footer, title"
+filter = "footer, title, aside"
+article_selector = '[class="post"]'
 
 [[categories.feeds]]
 title = "Orhun"
 url = "https://blog.orhun.dev/rss.xml"
 
 [[categories]]
-name = "News"
+name = "Politikken"
 oldest_article = 2
+auth.cookie = "Your auth cookie"
+filter = """
+  [class*="bg-paper-alt"],
+  [class*="image-loading-blur"],
+  [class*="bg-paper-200"],
+  [data-category*="next article"],
+  [data-element-type="article"]
+"""
+
+[[categories.feeds]]
+title = "Politikken Indland"
+url = "https://politiken.dk/rss/indland.rss"
+
+[[categories.feeds]]
+title = "Politikken Udland"
+url = "https://politiken.dk/rss/udland.rss"
+
+[[categories]]
+name = "DR Nyheder"
+oldest_article = 2
+filter = """
+  .dre-label-text__text,
+  .dre-share-link,
+  .dre-byline,
+  title,
+  [class^="BrandLabel"],
+  [class*="truncated-text"],
+  [class*="share-band"],
+  [class*="title-container"],
+  [class*="progress-bar-container"],
+  [class*="section-label"],
+  [class*="read-more"]
+"""
 
 [[categories.feeds]]
 title = "Udland"
 url = "https://www.dr.dk/nyheder/service/feeds/udland"
-filter = """
-.dre-label-text__text,
-.dre-share-link,
-.dre-byline,
-title,
-[class^="BrandLabel"],
-[class*="truncated-text"],
-[class*="share-band"],
-[class*="title-container"],
-[class*="progress-bar-container"],
-[class*="section-label"],
-[class*="read-more"]
-"""
 
 [[categories.feeds]]
 title = "Indland"
 url = "https://www.dr.dk/nyheder/service/feeds/indland"
-filter = """
-.dre-label-text__text,
-.dre-share-link,
-.dre-byline,
-title,
-[class^="BrandLabel"],
-[class*="truncated-text"],
-[class*="share-band"],
-[class*="title-container"],
-[class*="progress-bar-container"],
-[class*="section-label"],
-[class*="read-more"]
-"""

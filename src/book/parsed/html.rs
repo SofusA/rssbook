@@ -167,7 +167,7 @@ fn rewrite_article_html(
 ) -> AppResult<String> {
     let html = if let Some(filter) = filter {
         let settings = RewriteStrSettings::new().append_element_content_handler(element!(
-            filter.trim_end_matches(','),
+            filter.trim().trim_end_matches(','),
             |element| {
                 element.remove();
                 Ok(())

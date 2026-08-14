@@ -4,7 +4,6 @@ use reqwest::Client;
 use url::Url;
 
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 
 use crate::article_select::{read_read_articles, run_select};
 use crate::book::config;
@@ -19,12 +18,7 @@ mod upload;
 
 async fn run(config_path: &Path, device_url: Option<String>, select: bool) -> AppResult<()> {
     let config = config::Book::from_path(config_path)?.into();
-
-    let client = Client::builder()
-        .pool_max_idle_per_host(20)
-        .connect_timeout(Duration::from_secs(10))
-        .timeout(Duration::from_mins(1))
-        .build()?;
+    let client = Client::new();
 
     let read_articles = if select {
         run_select(&config, &client).await?
