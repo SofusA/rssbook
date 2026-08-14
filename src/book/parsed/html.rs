@@ -87,7 +87,7 @@ pub fn html_sanitation(html: &str) -> AppResult<String> {
             "script, style, iframe, frame, frameset, object, embed, \
              applet, canvas, noscript, template, form, input, button, \
              select, option, textarea, video, audio, source, track, \
-             link, meta, base, aside",
+             link, meta, base",
             |element| {
                 element.remove();
                 Ok(())
@@ -154,10 +154,9 @@ pub fn html_sanitation(html: &str) -> AppResult<String> {
         }));
 
     let rewritten = rewrite_str(&html, settings)?;
+    let rewritten = cleanup_dom(&rewritten).replace("&nbsp;", " ");
 
-    let cleaned = cleanup_dom(&rewritten).replace("&nbsp;", " ");
-
-    Ok(serialize_as_xhtml(&cleaned))
+    Ok(serialize_as_xhtml(&rewritten))
 }
 
 fn rewrite_article_html(
@@ -166,11 +165,13 @@ fn rewrite_article_html(
     filter: Option<&str>,
 ) -> AppResult<String> {
     let html = if let Some(filter) = filter {
-        let settings =
-            RewriteStrSettings::new().append_element_content_handler(element!(filter, |element| {
+        let settings = RewriteStrSettings::new().append_element_content_handler(element!(
+            filter.trim_end_matches(','),
+            |element| {
                 element.remove();
                 Ok(())
-            }));
+            }
+        ));
 
         rewrite_str(html, settings)?
     } else {

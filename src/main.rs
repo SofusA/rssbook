@@ -33,6 +33,7 @@ async fn run(config_path: &Path, device_url: Option<String>, select: bool) -> Ap
     };
 
     let book = config.parse(&read_articles, &client).await?;
+
     let epubs = book.build_epubs()?;
 
     cprintln!("<green>Book generation is done</>");
