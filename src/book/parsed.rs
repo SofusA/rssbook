@@ -142,6 +142,7 @@ async fn build_feed(
                     article.link,
                     feed.auth(),
                     feed.filter(),
+                    feed.article_selector(),
                     client,
                     image_downloader,
                 )
@@ -213,7 +214,8 @@ async fn build_article(
     title: String,
     link: String,
     auth: Option<&model::Auth>,
-    selector: Option<&str>,
+    filter: Option<&str>,
+    article_selector: &str,
     client: &Client,
     image_downloader: &ImageDownloader,
 ) -> AppResult<Article> {
@@ -238,7 +240,8 @@ async fn build_article(
         &html,
         &image_name_prefix,
         title,
-        selector,
+        filter,
+        article_selector,
         image_downloader,
     )
     .await

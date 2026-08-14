@@ -18,12 +18,13 @@ pub async fn process_article_html(
     image_name_prefix: &str,
     title: String,
     filter: Option<&str>,
+    article_selector: &str,
     image_downloader: &ImageDownloader,
 ) -> AppResult<Article> {
     let base_url = Url::parse(page_url)?;
     let document = Html::parse_document(source_html);
 
-    let selected_html = extract_article(&document);
+    let selected_html = extract_article(&document, article_selector)?;
     let wrapped = format!("<div>{}</div>", selected_html.html());
     let selected_html = Html::parse_fragment(&wrapped);
 
@@ -70,14 +71,14 @@ pub async fn process_article_html(
     })
 }
 
-fn extract_article(html: &Html) -> Html {
-    let selector = Selector::parse("article").expect("valid article selector");
+fn extract_article(html: &Html, article_selector: &str) -> AppResult<Html> {
+    let selector = Selector::parse(article_selector)?;
 
     if let Some(article) = html.select(&selector).next() {
-        return Html::parse_fragment(&article.html());
+        return Ok(Html::parse_fragment(&article.html()));
     }
 
-    html.clone()
+    Ok(html.clone())
 }
 
 pub fn html_sanitation(html: &str) -> AppResult<String> {

@@ -14,6 +14,7 @@ pub struct Book {
     oldest_article: Option<u64>,
     filter: Option<String>,
     auth: Option<Auth>,
+    article_selector: Option<String>,
 }
 
 impl Book {
@@ -32,6 +33,7 @@ pub struct Category {
     oldest_article: Option<u64>,
     filter: Option<String>,
     auth: Option<Auth>,
+    article_selector: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -41,6 +43,7 @@ pub struct RssFeed {
     oldest_article: Option<u64>,
     filter: Option<String>,
     auth: Option<Auth>,
+    article_selector: Option<String>,
 }
 
 #[derive(Clone, serde::Deserialize)]
@@ -57,6 +60,9 @@ impl From<Book> for model::Book {
                 let oldest_article = category.oldest_article.or(book.oldest_article);
                 let filter = category.filter.or_else(|| book.filter.clone());
                 let auth = category.auth.or_else(|| book.auth.clone());
+                let article_selector = category
+                    .article_selector
+                    .or_else(|| book.article_selector.clone());
 
                 let feeds = category
                     .feeds
@@ -70,6 +76,7 @@ impl From<Book> for model::Book {
                             feed.auth
                                 .or_else(|| auth.clone())
                                 .and_then(auth_from_deserialized),
+                            feed.article_selector.or_else(|| article_selector.clone()),
                         )
                     })
                     .collect();

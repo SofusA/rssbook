@@ -51,6 +51,7 @@ pub struct RssFeed {
     oldest_article: Option<u64>,
     filter: Option<String>,
     auth: Option<Auth>,
+    article_selector: String,
 }
 
 impl RssFeed {
@@ -60,6 +61,7 @@ impl RssFeed {
         oldest_article: Option<u64>,
         filter: Option<String>,
         auth: Option<Auth>,
+        article_selector: Option<String>,
     ) -> Self {
         Self {
             title,
@@ -67,6 +69,7 @@ impl RssFeed {
             oldest_article,
             filter,
             auth,
+            article_selector: article_selector.unwrap_or("article".to_string()),
         }
     }
 
@@ -88,6 +91,10 @@ impl RssFeed {
 
     pub fn filter(&self) -> Option<&str> {
         self.filter.as_deref()
+    }
+
+    pub fn article_selector(&self) -> &str {
+        &self.article_selector
     }
 }
 
