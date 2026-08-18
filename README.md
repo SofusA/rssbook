@@ -9,7 +9,7 @@ Install with homebrew:
 ```
 
 ## Usage
-1. Create a `rssbook.toml`. See `[rssbook](/blob/main/example_rssbook.toml)`.
+1. Create a `rssbook.toml`. See [`rssbook`](/example_rssbook.toml).
 1. Run `rssbook` in same directory.
 
 ## Flags
