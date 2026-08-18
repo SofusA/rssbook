@@ -30,6 +30,8 @@ async fn upload_epub(path: &Path, device_url: &Url) -> AppResult<()> {
     let mut upload_url = device_url.join("upload")?;
     upload_url.query_pairs_mut().append_pair("path", "/Rss");
 
+    let device_url = device_url.clone();
+
     tokio::task::spawn_blocking(move || -> AppResult<()> {
         let retries = 20;
 
@@ -39,8 +41,13 @@ async fn upload_epub(path: &Path, device_url: &Url) -> AppResult<()> {
             match result {
                 Ok(()) => return Ok(()),
 
-                // Retry curl error 52: empty reply from server.
                 Err(error) if attempt < retries => {
+                    if attempt == 0 {
+                        delete_remote_path(&path, &device_url)?;
+                        thread::sleep(Duration::from_secs(1));
+                        continue;
+                    }
+
                     println!("Error uploading. Will retry. Error: {error}");
                     thread::sleep(Duration::from_secs(5));
                 }
@@ -52,6 +59,29 @@ async fn upload_epub(path: &Path, device_url: &Url) -> AppResult<()> {
         Ok(())
     })
     .await??;
+
+    Ok(())
+}
+
+fn delete_remote_path(path: &Path, device_url: &Url) -> AppResult<()> {
+    let filename = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| AppError::InvalidEpubName(path.to_path_buf()))?;
+
+    let remote_path = format!("/Rss/{filename}");
+    let delete_url = device_url.join("delete")?;
+
+    let body = url::form_urlencoded::Serializer::new(String::new())
+        .append_pair("path", &remote_path)
+        .finish();
+
+    let mut handle = Easy::new();
+    handle.url(delete_url.as_str())?;
+    handle.post(true)?;
+    handle.post_fields_copy(body.as_bytes())?;
+    handle.fail_on_error(true)?;
+    handle.perform()?;
 
     Ok(())
 }

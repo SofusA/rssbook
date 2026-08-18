@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use thiserror::Error;
 
 pub type AppResult<T> = Result<T, AppError>;
@@ -51,6 +53,9 @@ pub enum AppError {
 
     #[error("Directory creation returned HTTP {0}")]
     CreateDirectory(u32),
+
+    #[error("Invalid epub name {0}")]
+    InvalidEpubName(PathBuf),
 }
 
 impl<'a> From<scraper::error::SelectorErrorKind<'a>> for AppError {

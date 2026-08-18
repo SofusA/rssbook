@@ -49,6 +49,7 @@ struct Args {
     #[clap(long, default_value = "./rssbook.toml")]
     config: PathBuf,
 
+    /// Select read articles, which will not be bundled
     #[clap(short, long)]
     select: bool,
 
