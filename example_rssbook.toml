@@ -29,7 +29,7 @@ title = "Orhun"
 url = "https://blog.orhun.dev/rss.xml"
 
 [[categories]]
-name = "Politikken"
+name = "Politiken"
 oldest_article = 2
 auth.cookie = "Your auth cookie"
 filter = """
@@ -41,11 +41,11 @@ filter = """
 """
 
 [[categories.feeds]]
-title = "Politikken Indland"
+title = "Politiken Indland"
 url = "https://politiken.dk/rss/indland.rss"
 
 [[categories.feeds]]
-title = "Politikken Udland"
+title = "Politiken Udland"
 url = "https://politiken.dk/rss/udland.rss"
 
 [[categories]]
