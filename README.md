@@ -5,7 +5,7 @@ Rss feeds to e-book builder.
 Install with homebrew:
 ```
   brew trust sofusa/tap
-  brew install sofusa/rssbook
+  brew install --HEAD sofusa/tap/rssbook
 ```
 
 ## Usage
