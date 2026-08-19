@@ -23,7 +23,7 @@ chrono = "0.4"
 color-print = "0.3"
 serde = { version = "1", features = ["derive"] }
 toml = "1.1.4"
-curl = "0.4.50"
+curl = { version = "0.4" }
 
 ratatui = "0.30"
 crossterm = "0.29"
