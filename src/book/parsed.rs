@@ -4,7 +4,8 @@ use chrono::Utc;
 use color_print::cprintln;
 use feed_rs::model::Feed;
 use feed_rs::parser;
-use futures::future::try_join_all;
+use futures::TryFutureExt;
+use futures::future::{join_all, try_join_all};
 use reqwest::Client;
 use reqwest::header::COOKIE;
 use url::Url;
@@ -125,7 +126,7 @@ async fn build_feed(
         .and_then(|content| html_sanitation(&content).ok())
         .unwrap_or_default();
 
-    let articles = try_join_all(
+    let articles = join_all(
         channel
             .entries
             .iter()
@@ -134,6 +135,8 @@ async fn build_feed(
             .filter_map(|x| article_details(x.0, x.1))
             .filter(|article| !read_articles.contains(&article.link))
             .map(|article| {
+                let title = article.title.clone();
+
                 build_article(
                     category_index,
                     feed_index,
@@ -146,9 +149,16 @@ async fn build_feed(
                     client,
                     image_downloader,
                 )
+                .map_err(move |error| {
+                    cprintln!("<red>Failed to fetch {title}:</> {error}");
+                    error
+                })
             }),
     )
-    .await?;
+    .await
+    .into_iter()
+    .flatten()
+    .collect();
 
     Ok(RssFeed {
         name: feed.title().to_string(),
